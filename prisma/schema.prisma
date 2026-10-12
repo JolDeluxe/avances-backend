@@ -1,0 +1,391 @@
+datasource db {
+  provider = "mysql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// =========================================================================
+// 1. ESTADOS DE REGISTRO Y OPERATIVOS (ENUMS)
+// =========================================================================
+
+enum EstadoRegistro {
+  ACTIVO
+  INACTIVO
+
+  @@map("estado_registro")
+}
+
+enum TipoAccionPermiso {
+  CONCEDER
+  DENEGAR
+
+  @@map("tipo_accion_permiso")
+}
+
+enum EstadoListado {
+  PENDIENTE
+  EN_PROCESO
+  SEPARADO
+  ENTREGADO_A_PRODUCCION
+  CANCELADO
+  DESCONTADO
+
+  @@map("estado_listado")
+}
+
+enum TipoSurtidoAlmacen {
+  DIRECTOS
+  INDIRECTOS
+  BOLSAS
+  TODOS
+
+  @@map("tipo_surtido_almacen")
+}
+
+enum TipoMaterialAuditor {
+  DIRECTOS
+  INDIRECTOS
+  TODOS
+
+  @@map("tipo_material_auditor")
+}
+
+enum AreaProduccion {
+  BOTA
+  ACCESORIOS
+
+  @@map("area_produccion")
+}
+
+enum TipoFrenteMaterial {
+  DIRECTOS
+  INDIRECTOS
+  BOLSAS
+
+  @@map("tipo_frente_material")
+}
+
+enum EstadoFrenteMaterial {
+  PENDIENTE
+  SEPARADO
+  ENTREGADO
+  DESCONTADO
+
+  @@map("estado_frente_material")
+}
+
+// =========================================================================
+// 2. ORGANIZACIÓN Y LÍNEAS DE PRODUCCIÓN
+// =========================================================================
+
+model Departamento {
+  id                 Int            @id @default(autoincrement())
+  codigo             String         @unique @db.VarChar(30)
+  nombre             String         @db.VarChar(100)
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  usuarios         Usuario[]
+  lineasProduccion LineaProduccion[]
+  listadosMaterial ListadoMaterial[]
+
+  @@index([estado])
+  @@map("departamentos")
+}
+
+model LineaProduccion {
+  id                 Int            @id @default(autoincrement())
+  codigo             String         @unique @db.VarChar(30)
+  nombre             String         @db.VarChar(100)
+  departamentoId     Int            @map("departamento_id")
+  area               AreaProduccion @default(BOTA)
+  orden              Int            @default(0)
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  departamento      Departamento             @relation(fields: [departamentoId], references: [id], onDelete: Restrict)
+  listadosMaterial  ListadoMaterial[]
+  usuariosAsignados UsuarioLineaProduccion[]
+
+  // Restricción única compuesta para garantizar integridad referencial estricta desde ListadoMaterial
+  @@unique([id, departamentoId], name: "unique_linea_departamento")
+  @@index([departamentoId])
+  @@index([departamentoId, area, orden])
+  @@index([estado])
+  @@map("lineas_produccion")
+}
+
+// =========================================================================
+// 3. SEGURIDAD, AUTORIZACIÓN Y ALCANCE (MATRIZ DE PERMISOS)
+// =========================================================================
+
+model Rol {
+  id                 Int            @id @default(autoincrement())
+  codigo             String         @unique @db.VarChar(50) // SUPER_ADMIN, ADMIN, ALMACENISTA, AUDITOR
+  nombre             String         @db.VarChar(100)
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  usuarios Usuario[]
+  permisos RolPermiso[]
+
+  @@index([estado])
+  @@map("roles")
+}
+
+model Permiso {
+  id                 Int            @id @default(autoincrement())
+  codigo             String         @unique @db.VarChar(100) // ej. listado:crear, listado:separar
+  modulo             String         @db.VarChar(50) // ej. listados, usuarios, departamentos
+  descripcion        String?        @db.VarChar(255)
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  roles       RolPermiso[]
+  excepciones ExcepcionPermisoUsuario[]
+
+  @@index([modulo])
+  @@index([estado])
+  @@map("permisos")
+}
+
+model RolPermiso {
+  rolId              Int            @map("rol_id")
+  permisoId          Int            @map("permiso_id")
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Restrict)
+  permiso Permiso @relation(fields: [permisoId], references: [id], onDelete: Restrict)
+
+  @@id([rolId, permisoId])
+  @@index([estado])
+  @@map("roles_permisos")
+}
+
+model Usuario {
+  id                  Int                  @id @default(autoincrement())
+  usuario             String               @unique @db.VarChar(50)
+  nombre              String               @db.VarChar(120)
+  passwordHash        String               @map("password_hash") @db.VarChar(255)
+  passwordEncrypted   String?              @map("password_encrypted") @db.Text
+  versionPermisos     Int                  @default(1) @map("version_permisos")
+  rolId               Int                  @map("rol_id")
+  departamentoId      Int                  @map("departamento_id")
+  tipoSurtidoAlmacen  String?              @map("tipo_surtido_almacen") @db.VarChar(100)
+  tipoMaterialAuditor String?              @map("tipo_material_auditor") @db.VarChar(100)
+  estado              EstadoRegistro       @default(ACTIVO)
+  fechaCreacion       DateTime             @default(now()) @map("fecha_creacion")
+  fechaActualizacion  DateTime             @updatedAt @map("fecha_actualizacion")
+
+  rol                Rol                       @relation(fields: [rolId], references: [id], onDelete: Restrict)
+  departamento       Departamento              @relation(fields: [departamentoId], references: [id], onDelete: Restrict)
+  excepcionesPermiso ExcepcionPermisoUsuario[]
+  lineasAsignadas    UsuarioLineaProduccion[]
+
+  // Frentes operativos (ListadosSurtidoFrente)
+  frentesSeparados        ListadoSurtidoFrente[]   @relation("frente_separador")
+  frentesEntregados       ListadoSurtidoFrente[]   @relation("frente_entregador")
+  frentesValidados        ListadoSurtidoFrente[]   @relation("frente_validador")
+  frentesDescontados      ListadoSurtidoFrente[]   @relation("frente_descontado")
+  historialFrentesCambiados HistorialEstadoFrente[] @relation("HistorialFrenteCambiadoPor")
+
+  // Trazabilidad de operaciones
+  listadosCreados    ListadoMaterial[]        @relation("ListadoCreadoPor")
+  cambiosEstado      HistorialEstadoListado[] @relation("EstadoCambiadoPor")
+  registrosAuditoria RegistroAuditoria[]      @relation("AuditoriaUsuario")
+  sesiones           Sesion[]
+
+  @@index([rolId])
+  @@index([departamentoId])
+  @@index([estado])
+  @@map("usuarios")
+}
+
+model ExcepcionPermisoUsuario {
+  id                 Int               @id @default(autoincrement())
+  usuarioId          Int               @map("usuario_id")
+  permisoId          Int               @map("permiso_id")
+  accion             TipoAccionPermiso
+  estado             EstadoRegistro    @default(ACTIVO)
+  fechaCreacion      DateTime          @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime          @updatedAt @map("fecha_actualizacion")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  permiso Permiso @relation(fields: [permisoId], references: [id], onDelete: Restrict)
+
+  @@unique([usuarioId, permisoId], name: "unique_usuario_permiso")
+  @@index([estado])
+  @@map("excepciones_permisos_usuario")
+}
+
+model UsuarioLineaProduccion {
+  usuarioId          Int            @map("usuario_id")
+  lineaProduccionId  Int            @map("linea_produccion_id")
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  usuario         Usuario         @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  lineaProduccion LineaProduccion @relation(fields: [lineaProduccionId], references: [id], onDelete: Restrict)
+
+  @@id([usuarioId, lineaProduccionId])
+  @@index([lineaProduccionId])
+  @@index([estado])
+  @@map("usuarios_lineas_produccion")
+}
+
+// =========================================================================
+// 4. SEGUIMIENTO OPERATIVO DE LISTADOS (FASE 1)
+// =========================================================================
+
+model ListadoMaterial {
+  id                 Int           @id @default(autoincrement())
+  numeroListado      String        @unique @map("numero_listado") @db.VarChar(50)
+  fechaRequerida     DateTime      @map("fecha_requerida") @db.Date
+  departamentoId     Int           @map("departamento_id")
+  lineaProduccionId  Int           @map("linea_produccion_id")
+  estado             EstadoListado @default(PENDIENTE)
+  creadoPorUsuarioId Int           @map("creado_por_usuario_id")
+  fechaCreacion      DateTime      @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime      @updatedAt @map("fecha_actualizacion")
+
+  departamento     Departamento    @relation(fields: [departamentoId], references: [id], onDelete: Restrict)
+  lineaProduccion  LineaProduccion @relation(fields: [lineaProduccionId, departamentoId], references: [id, departamentoId], onDelete: Restrict)
+  creadoPorUsuario Usuario         @relation("ListadoCreadoPor", fields: [creadoPorUsuarioId], references: [id], onDelete: Restrict)
+
+  historialEstados HistorialEstadoListado[]
+  frentes          ListadoSurtidoFrente[]
+
+  @@index([departamentoId, estado, fechaRequerida, id], name: "idx_listados_depto_estado_fecha")
+  @@index([lineaProduccionId, estado, fechaRequerida, id], name: "idx_listados_linea_estado_fecha")
+  @@index([lineaProduccionId, departamentoId])
+  @@index([estado])
+  @@index([fechaRequerida])
+  @@index([creadoPorUsuarioId])
+  @@map("listados_material")
+}
+
+model ListadoSurtidoFrente {
+  id                Int                  @id @default(autoincrement())
+  listadoMaterialId Int                  @map("listado_material_id")
+  tipoFrente        TipoFrenteMaterial   @map("tipo_frente")
+  estado            EstadoFrenteMaterial @default(PENDIENTE)
+
+  separadoPorId Int?      @map("separado_por_id")
+  fechaSeparado DateTime? @map("fecha_separado")
+
+  entregadoPorId Int?      @map("entregado_por_id")
+  fechaEntregado DateTime? @map("fecha_entregado")
+
+  validadoPorId Int?      @map("validado_por_id")
+  fechaValidado DateTime? @map("fecha_validado")
+
+  descontadoPorId Int?      @map("descontado_por_id")
+  fechaDescontado DateTime? @map("fecha_descontado")
+
+  fechaCreacion      DateTime @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime @updatedAt @map("fecha_actualizacion")
+
+  listado          ListadoMaterial         @relation(fields: [listadoMaterialId], references: [id], onDelete: Cascade)
+  separadoPor      Usuario?                @relation("frente_separador", fields: [separadoPorId], references: [id])
+  entregadoPor     Usuario?                @relation("frente_entregador", fields: [entregadoPorId], references: [id])
+  validadoPor      Usuario?                @relation("frente_validador", fields: [validadoPorId], references: [id])
+  descontadoPor    Usuario?                @relation("frente_descontado", fields: [descontadoPorId], references: [id])
+  historialEstados HistorialEstadoFrente[]
+
+  @@unique([listadoMaterialId, tipoFrente], name: "unique_listado_frente")
+  @@index([tipoFrente, estado, listadoMaterialId], name: "idx_frentes_tipo_estado_listado")
+  @@index([estado])
+  @@map("listados_surtido_frentes")
+}
+
+model HistorialEstadoFrente {
+  id                     Int                  @id @default(autoincrement())
+  listadoSurtidoFrenteId Int                  @map("listado_surtido_frente_id")
+  estadoAnterior         EstadoFrenteMaterial @map("estado_anterior")
+  estadoNuevo            EstadoFrenteMaterial @map("estado_nuevo")
+  cambiadoPorUsuarioId   Int                  @map("cambiado_por_usuario_id")
+  fechaCambio            DateTime             @default(now()) @map("fecha_cambio")
+  motivo                 String?              @db.VarChar(500)
+
+  frente                 ListadoSurtidoFrente @relation(fields: [listadoSurtidoFrenteId], references: [id], onDelete: Cascade)
+  cambiadoPorUsuario     Usuario              @relation("HistorialFrenteCambiadoPor", fields: [cambiadoPorUsuarioId], references: [id], onDelete: Restrict)
+
+  @@index([listadoSurtidoFrenteId, fechaCambio], name: "idx_historial_frente_fecha")
+  @@index([cambiadoPorUsuarioId])
+  @@index([fechaCambio])
+  @@map("historial_estados_frente")
+}
+
+// Bitácora append-only: sin updatedAt, sin DELETE, puras transiciones de estado
+model HistorialEstadoListado {
+  id                   Int           @id @default(autoincrement())
+  listadoMaterialId    Int           @map("listado_material_id")
+  estadoAnterior       EstadoListado @map("estado_anterior")
+  estadoNuevo          EstadoListado @map("estado_nuevo")
+  cambiadoPorUsuarioId Int           @map("cambiado_por_usuario_id")
+  fechaCambio          DateTime      @default(now()) @map("fecha_cambio")
+  motivo               String?       @db.VarChar(500)
+
+  listadoMaterial    ListadoMaterial @relation(fields: [listadoMaterialId], references: [id], onDelete: Restrict)
+  cambiadoPorUsuario Usuario         @relation("EstadoCambiadoPor", fields: [cambiadoPorUsuarioId], references: [id], onDelete: Restrict)
+
+  @@index([listadoMaterialId, fechaCambio], name: "idx_historial_listado_fecha")
+  @@index([cambiadoPorUsuarioId])
+  @@index([fechaCambio])
+  @@map("historial_estados_listado")
+}
+
+// =========================================================================
+// 5. AUDITORÍA TRANSVERSAL MÍNIMA (SEGURIDAD Y ADMINISTRACIÓN)
+// =========================================================================
+
+// Bitácora append-only: sin updatedAt, sin DELETE, solo eventos administrativos
+model RegistroAuditoria {
+  id            Int      @id @default(autoincrement())
+  usuarioId     Int?     @map("usuario_id")
+  accion        String   @db.VarChar(50)
+  entidad       String   @db.VarChar(50)
+  entidadId     Int?     @map("entidad_id")
+  detalle       String?  @db.VarChar(255)
+  fechaCreacion DateTime @default(now()) @map("fecha_creacion")
+
+  usuario Usuario? @relation("AuditoriaUsuario", fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@index([usuarioId])
+  @@index([fechaCreacion])
+  @@map("registros_auditoria")
+}
+
+// =========================================================================
+// 6. SESIONES PERSISTENTES (AUTENTICACIÓN REFRESH TOKEN 30 DÍAS)
+// =========================================================================
+
+model Sesion {
+  id                 Int            @id @default(autoincrement())
+  usuarioId          Int            @map("usuario_id")
+  refreshTokenHash   String         @unique @map("refresh_token_hash") @db.VarChar(255)
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaExpiracion    DateTime       @map("fecha_expiracion")
+  fechaUltimoUso     DateTime       @default(now()) @map("fecha_ultimo_uso")
+  fechaRevocacion    DateTime?      @map("fecha_revocacion")
+  ipOrigen           String?        @map("ip_origen") @db.VarChar(45)
+  agenteUsuario      String?        @map("agente_usuario") @db.VarChar(255)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([usuarioId])
+  @@index([estado])
+  @@index([fechaExpiracion])
+  @@map("sesiones")
+}
