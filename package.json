@@ -13,7 +13,8 @@
     "test": "bun test",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "db:seed": "bun prisma/seed.ts"
+    "db:seed": "bun prisma/seed.ts",
+    "db:sync-historico": "bun scripts/sync-historico.ts"
   },
   "prisma": {
     "seed": "bun prisma/seed.ts"
