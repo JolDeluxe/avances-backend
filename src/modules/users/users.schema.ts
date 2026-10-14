@@ -5,7 +5,8 @@ export const createUserSchema = z.object({
     .string()
     .min(3, "El nombre de usuario debe tener al menos 3 caracteres")
     .max(50, "El nombre de usuario no debe exceder 50 caracteres")
-    .regex(/^[a-zA-Z0-9_.-]+$/, "El usuario solo puede contener letras, números, puntos, guiones y guiones bajos"),
+    .regex(/^[a-zA-Z0-9_.-]+$/, "El usuario solo puede contener letras, números, puntos, guiones y guiones bajos")
+    .optional(),
   nombre: z
     .string()
     .min(2, "El nombre completo debe tener al menos 2 caracteres")

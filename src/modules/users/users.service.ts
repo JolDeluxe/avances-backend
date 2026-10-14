@@ -89,7 +89,7 @@ export class UsersService {
             },
             include: {
               lineaProduccion: {
-                select: { id: true, codigo: true, nombre: true },
+                select: { id: true, codigo: true, nombre: true, area: true, orden: true },
               },
             },
           },
@@ -141,19 +141,32 @@ export class UsersService {
     // Paginación en memoria respetando el ordenamiento por jerarquía de roles
     const paginados = usuarios.slice(saltar, saltar + limite);
 
-    const items = paginados.map((u) => ({
-      id: u.id,
-      usuario: u.usuario,
-      nombre: u.nombre,
-      rol: u.rol,
-      departamento: u.departamento,
-      tipoSurtidoAlmacen: u.tipoSurtidoAlmacen,
-      tipoMaterialAuditor: u.tipoMaterialAuditor,
-      estado: u.estado,
-      lineasAsignadas: u.lineasAsignadas.map((l) => l.lineaProduccion),
-      fechaCreacion: u.fechaCreacion,
-      fechaActualizacion: u.fechaActualizacion,
-    }));
+    const AREA_ORDER: Record<string, number> = { BOTA: 1, ACCESORIOS: 2 };
+
+    const items = paginados.map((u) => {
+      const lineasOrdenadas = u.lineasAsignadas
+        .map((l) => l.lineaProduccion)
+        .sort((a, b) => {
+          const areaA = AREA_ORDER[a.area ?? ''] ?? 99;
+          const areaB = AREA_ORDER[b.area ?? ''] ?? 99;
+          if (areaA !== areaB) return areaA - areaB;
+          return (a.orden ?? 0) - (b.orden ?? 0);
+        });
+
+      return {
+        id: u.id,
+        usuario: u.usuario,
+        nombre: u.nombre,
+        rol: u.rol,
+        departamento: u.departamento,
+        tipoSurtidoAlmacen: u.tipoSurtidoAlmacen,
+        tipoMaterialAuditor: u.tipoMaterialAuditor,
+        estado: u.estado,
+        lineasAsignadas: lineasOrdenadas,
+        fechaCreacion: u.fechaCreacion,
+        fechaActualizacion: u.fechaActualizacion,
+      };
+    });
 
     return {
       total,
@@ -182,7 +195,7 @@ export class UsersService {
           },
           include: {
             lineaProduccion: {
-              select: { id: true, codigo: true, nombre: true, departamentoId: true },
+              select: { id: true, codigo: true, nombre: true, area: true, orden: true, departamentoId: true },
             },
           },
         },
@@ -200,6 +213,14 @@ export class UsersService {
     if (!usuario) {
       throw new NotFoundError(`Usuario con ID ${id} no encontrado`);
     }
+
+    const AREA_ORDER: Record<string, number> = { BOTA: 1, ACCESORIOS: 2 };
+    usuario.lineasAsignadas.sort((a, b) => {
+      const areaA = AREA_ORDER[a.lineaProduccion.area ?? ''] ?? 99;
+      const areaB = AREA_ORDER[b.lineaProduccion.area ?? ''] ?? 99;
+      if (areaA !== areaB) return areaA - areaB;
+      return (a.lineaProduccion.orden ?? 0) - (b.lineaProduccion.orden ?? 0);
+    });
 
     // Aislamiento Departamental:
     // Si actorId está presente y no es SUPER_ADMIN, solo puede acceder a usuarios de su propio departamento.
@@ -236,13 +257,92 @@ export class UsersService {
     };
   }
 
+  /**
+   * Genera un identificador de usuario limpio, profesional y completo a partir del nombre y apellido.
+   * Contempla partículas compuestas hispanas como "de Oca", "De La Torre", "del Río", "San Juan", etc.
+   * Si existe colisión, agrega un correlativo secuencial (ej. amontesdeoca, amontesdeoca2).
+   */
+  async generateUniqueUsername(nombreCompleto: string, usuarioActualId?: number): Promise<string> {
+    const PARTICULAS = new Set(["de", "del", "la", "las", "los", "san", "santa"]);
+
+    // 1. Limpiar acentos y caracteres especiales
+    const normalizado = nombreCompleto
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+
+    // 2. Extraer palabras alfanuméricas
+    const tokens = normalizado.split(/\s+/).filter((t) => /^[a-z0-9]+$/.test(t));
+    if (tokens.length === 0) {
+      return "usuario";
+    }
+
+    let usernameBase = "";
+    if (tokens.length === 1 && tokens[0]) {
+      usernameBase = tokens[0];
+    } else {
+      const primerNombre = tokens[0] || "u";
+      const inicial = primerNombre.charAt(0);
+
+      // Reconstruir apellidos uniendo partículas (ej: ["montes", "de", "oca"] -> "montesdeoca")
+      const partesRestantes = tokens.slice(1);
+      const apellidoTokens: string[] = [];
+
+      for (let i = 0; i < partesRestantes.length; i++) {
+        const t = partesRestantes[i];
+        if (!t) continue;
+        if (PARTICULAS.has(t)) {
+          // Si es partícula y le sigue otra palabra, concatenar
+          if (i + 1 < partesRestantes.length) {
+            apellidoTokens.push(t);
+          }
+        } else {
+          apellidoTokens.push(t);
+        }
+      }
+
+      const apellidoUnido = apellidoTokens.join("");
+      usernameBase = `${inicial}${apellidoUnido}`;
+    }
+
+    // Limitar longitud base
+    usernameBase = usernameBase.slice(0, 30);
+    if (!usernameBase || usernameBase.length < 2) {
+      usernameBase = "user";
+    }
+
+    // Verificar unicidad en BD
+    let candidato = usernameBase;
+    let contador = 1;
+
+    while (true) {
+      const existente = await prisma.usuario.findUnique({
+        where: { usuario: candidato },
+        select: { id: true },
+      });
+
+      if (!existente || (usuarioActualId && existente.id === usuarioActualId)) {
+        return candidato;
+      }
+
+      contador++;
+      candidato = `${usernameBase}${contador}`;
+    }
+  }
+
   async createUser(data: CreateUserInput, actorId?: number) {
-    // 1. Validar nombre de usuario único
-    const existeUsuario = await prisma.usuario.findUnique({
-      where: { usuario: data.usuario },
-    });
-    if (existeUsuario) {
-      throw new ConflictError(`El nombre de usuario '${data.usuario}' ya está en uso`);
+    // 1. Resolver nombre de usuario: si no se envía o viene vacío, autogenerar
+    let usuarioFinal = (data.usuario || "").trim().toLowerCase();
+    if (!usuarioFinal) {
+      usuarioFinal = await this.generateUniqueUsername(data.nombre);
+    } else {
+      const existeUsuario = await prisma.usuario.findUnique({
+        where: { usuario: usuarioFinal },
+      });
+      if (existeUsuario) {
+        throw new ConflictError(`El nombre de usuario '${usuarioFinal}' ya está en uso`);
+      }
     }
 
     // 2. Validar que el rol exista y esté activo
@@ -399,7 +499,7 @@ export class UsersService {
     const usuarioCreado = await prisma.$transaction(async (tx) => {
       const nuevoUsuario = await tx.usuario.create({
         data: {
-          usuario: data.usuario,
+          usuario: usuarioFinal,
           nombre: data.nombre,
           passwordHash,
           passwordEncrypted,
@@ -649,6 +749,12 @@ export class UsersService {
     const passwordHash = data.password ? securityService.hashPassword(data.password) : undefined;
     const passwordEncrypted = data.password ? securityService.encryptPassword(data.password) : undefined;
 
+    // Si cambia el nombre, autogenerar nuevo nombre de usuario único basado en el nuevo nombre
+    let nuevoUsuario: string | undefined = undefined;
+    if (data.nombre && data.nombre.trim() !== usuarioActual.nombre) {
+      nuevoUsuario = await this.generateUniqueUsername(data.nombre, id);
+    }
+
     // Detectar si hubo cambios en permisos para invalidar versión de permisos del usuario
     const huboCambioPermisos =
       (data.rolId !== undefined && data.rolId !== usuarioActual.rolId) ||
@@ -659,7 +765,8 @@ export class UsersService {
       await tx.usuario.update({
         where: { id },
         data: {
-          ...(data.nombre && { nombre: data.nombre }),
+          ...(data.nombre && { nombre: data.nombre.trim() }),
+          ...(nuevoUsuario && { usuario: nuevoUsuario }),
           ...(passwordHash && { passwordHash }),
           ...(passwordEncrypted && { passwordEncrypted }),
           ...(data.rolId && { rolId: data.rolId }),
@@ -983,10 +1090,31 @@ export class UsersService {
     };
   }
 
-  async getCatalogs() {
+  async getCatalogs(actorId?: number) {
+    let esGlobal = true;
+    let actorDeptoId: number | null = null;
+
+    if (actorId) {
+      const scope = await scopeService.resolveUserScope(actorId);
+      esGlobal = scope.esGlobal;
+      actorDeptoId = scope.departamentoId;
+    }
+
+    const whereRoles: Record<string, unknown> = { estado: "ACTIVO" };
+    // Si no es global (es ADMIN), no puede ver ni asignar el rol SUPER_ADMIN
+    if (!esGlobal) {
+      whereRoles.codigo = { not: "SUPER_ADMIN" };
+    }
+
+    const whereDeptos: Record<string, unknown> = { estado: "ACTIVO" };
+    // Si no es global, confinado a su propio departamento
+    if (!esGlobal && actorDeptoId) {
+      whereDeptos.id = actorDeptoId;
+    }
+
     const [roles, departamentos, permisos] = await Promise.all([
       prisma.rol.findMany({
-        where: { estado: "ACTIVO" },
+        where: whereRoles,
         select: {
           id: true,
           codigo: true,
@@ -1003,7 +1131,7 @@ export class UsersService {
         orderBy: { id: "asc" },
       }),
       prisma.departamento.findMany({
-        where: { estado: "ACTIVO" },
+        where: whereDeptos,
         include: {
           lineasProduccion: {
             where: { estado: "ACTIVO" },

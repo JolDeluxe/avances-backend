@@ -1,6 +1,7 @@
 import { prisma } from "../../../config/database";
 import { EstadoListado, EstadoFrenteMaterial, TipoFrenteMaterial } from "@prisma/client";
 import { scopeService } from "../../auth/services/scope.service";
+import { listadosEventPublisher, type TipoEventoListado } from "../events";
 import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from "../../../utils/errors";
 
 interface TransicionConfig {
@@ -237,7 +238,7 @@ export class ListadosLifecycleService {
       });
     });
 
-    return prisma.listadoMaterial.findUniqueOrThrow({
+    const actualizado = await prisma.listadoMaterial.findUniqueOrThrow({
       where: { id: listadoId },
       include: {
         lineaProduccion: { select: { id: true, codigo: true, nombre: true } },
@@ -246,6 +247,33 @@ export class ListadosLifecycleService {
         frentes: true,
       },
     });
+
+    // Mapeo del tipo de evento según la transición completada
+    let tipoEvento: TipoEventoListado = "LISTADO_ACTUALIZADO";
+    if (estadoDestino === "SEPARADO") tipoEvento = "FRENTE_SEPARADO";
+    else if (estadoDestino === "ENTREGADO") tipoEvento = "FRENTE_ENTREGADO";
+    else if (estadoDestino === "DESCONTADO") tipoEvento = "FRENTE_DESCONTADO";
+    else if (estadoDestino === "PENDIENTE") tipoEvento = "FRENTE_RETROCEDIDO";
+
+    // Publicación post-commit: la transacción ya confirmó con éxito
+    listadosEventPublisher.publish({
+      id: crypto.randomUUID(),
+      tipo: tipoEvento,
+      timestamp: new Date().toISOString(),
+      listadoId: actualizado.id,
+      numeroListado: actualizado.numeroListado,
+      departamentoId: actualizado.departamentoId,
+      lineaProduccionId: actualizado.lineaProduccionId,
+      lineaCodigo: actualizado.lineaProduccion.codigo,
+      estadoGlobal: actualizado.estado,
+      frentes: actualizado.frentes.map((f) => ({
+        tipoFrente: f.tipoFrente,
+        estado: f.estado,
+      })),
+      frenteAfectado: tipoFrente,
+    });
+
+    return actualizado;
   }
 
   async separar(id: number, usuarioId: number, tipoFrente: TipoFrenteMaterial, motivo?: string) {
@@ -315,11 +343,26 @@ export class ListadosLifecycleService {
       }
 
       if (listado.estado === "DESCONTADO" || listado.estado === "CANCELADO") {
-         throw new ConflictError("Listado no puede ser cancelado");
+         throw new ConflictError("Listado no puede ser cancelado porque ya se encuentra descontado o cancelado");
       }
 
-      if (listado.estado === "ENTREGADO_A_PRODUCCION" || listado.frentes.some(f => f.estado === "ENTREGADO" || f.estado === "DESCONTADO")) {
-        throw new BadRequestError("El listado no puede transicionar de ENTREGADO_A_PRODUCCION a CANCELADO directamente; debe retroceder los frentes primero");
+      const frentes = listado.frentes ?? [];
+      const todosDescontados = frentes.length > 0 && frentes.every(
+        (f) => f.estado === "DESCONTADO"
+      );
+
+      // Si todos los frentes aplicables ya están en DESCONTADO en sistema, no se puede cancelar
+      if (todosDescontados) {
+        throw new BadRequestError(
+          "El listado ya tiene todos sus materiales descontados en sistema; no puede ser cancelado"
+        );
+      }
+
+      // Si no es ADMIN/SUPER_ADMIN, no puede cancelar si algún frente ya está entregado
+      if (scope.rolCodigo !== "SUPER_ADMIN" && scope.rolCodigo !== "ADMIN") {
+        if (listado.estado === "ENTREGADO_A_PRODUCCION" || frentes.some(f => f.estado === "ENTREGADO" || f.estado === "DESCONTADO")) {
+          throw new BadRequestError("El listado tiene materiales entregados; debe retroceder los materiales primero");
+        }
       }
 
       await tx.listadoMaterial.update({
@@ -338,10 +381,34 @@ export class ListadosLifecycleService {
       });
     });
 
-    return prisma.listadoMaterial.findUniqueOrThrow({
+    const cancelado = await prisma.listadoMaterial.findUniqueOrThrow({
       where: { id },
-      include: { frentes: true, lineaProduccion: true, departamento: true, creadoPorUsuario: true }
+      include: {
+        frentes: true,
+        lineaProduccion: { select: { id: true, codigo: true, nombre: true } },
+        departamento: { select: { id: true, codigo: true, nombre: true } },
+        creadoPorUsuario: true,
+      },
     });
+
+    // Publicación post-commit: la transacción ya confirmó con éxito
+    listadosEventPublisher.publish({
+      id: crypto.randomUUID(),
+      tipo: "LISTADO_CANCELADO",
+      timestamp: new Date().toISOString(),
+      listadoId: cancelado.id,
+      numeroListado: cancelado.numeroListado,
+      departamentoId: cancelado.departamentoId,
+      lineaProduccionId: cancelado.lineaProduccionId,
+      lineaCodigo: cancelado.lineaProduccion.codigo,
+      estadoGlobal: cancelado.estado,
+      frentes: cancelado.frentes.map((f) => ({
+        tipoFrente: f.tipoFrente,
+        estado: f.estado,
+      })),
+    });
+
+    return cancelado;
   }
 
   async descontar(id: number, usuarioId: number, tipoFrente: TipoFrenteMaterial, motivo?: string) {

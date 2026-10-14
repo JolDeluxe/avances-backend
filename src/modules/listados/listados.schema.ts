@@ -113,6 +113,7 @@ export const listListadosQuerySchema = z
     limit: z.coerce.number().int().min(1, "limit mínimo es 1").max(1000, "limit máximo es 1000").default(60),
     pagina: z.coerce.number().int().positive("pagina debe ser un número positivo").optional(),
     porPagina: z.coerce.number().int().min(1, "porPagina mínimo es 1").max(1000, "porPagina máximo es 1000").optional(),
+    modoGlobal: z.coerce.boolean().optional(),
   })
   .refine(
     (data) => {

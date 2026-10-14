@@ -19,7 +19,9 @@ export class ListadosQueryService {
       }
     }
 
-    const scopeWhere = scopeService.buildScopeWhere(scope, filtros.lineaProduccionId);
+    const scopeWhere = filtros.modoGlobal
+      ? (scope.esGlobal ? {} : { departamentoId: scope.departamentoId })
+      : scopeService.buildScopeWhere(scope, filtros.lineaProduccionId);
 
     const where: Prisma.ListadoMaterialWhereInput = {
       ...scopeWhere,
@@ -43,13 +45,17 @@ export class ListadosQueryService {
       }),
       ...((filtros.fechaDesde || filtros.fechaHasta) && {
         fechaRequerida: {
-          ...(filtros.fechaDesde && { gte: new Date(filtros.fechaDesde) }),
-          ...(filtros.fechaHasta && { lte: new Date(filtros.fechaHasta) }),
+          ...(filtros.fechaDesde && {
+            gte: new Date(filtros.fechaDesde.includes('T') ? filtros.fechaDesde : `${filtros.fechaDesde}T00:00:00.000Z`),
+          }),
+          ...(filtros.fechaHasta && {
+            lte: new Date(filtros.fechaHasta.includes('T') ? filtros.fechaHasta : `${filtros.fechaHasta}T23:59:59.999Z`),
+          }),
         },
       }),
     };
 
-    if (!scope.esGlobal) {
+    if (!scope.esGlobal && !filtros.modoGlobal) {
       if (scope.tipoSurtidoAlmacen) {
         const permitidos = scope.tipoSurtidoAlmacen
           .split(",")
@@ -205,7 +211,10 @@ export class ListadosQueryService {
     const aniosSet = new Set<number>();
     for (const item of listados) {
       if (item.fechaRequerida) {
-        aniosSet.add(new Date(item.fechaRequerida).getFullYear());
+        const y = new Date(item.fechaRequerida).getFullYear();
+        if (y >= 2020 && y <= 2030) {
+          aniosSet.add(y);
+        }
       }
     }
 

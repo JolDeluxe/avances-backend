@@ -45,20 +45,47 @@ interface ListadoRawItem {
   fechaRequeridaStr: string; // Ej: "07/07/2025"
 }
 
-/** Parsea una fecha en formato "DD/MM/YYYY" o "DD / MM / YYYY" a objeto Date UTC */
-function parseDate(dateStr?: string): Date {
-  if (!dateStr) return new Date();
-  const cleaned = dateStr.replace(/\s+/g, '');
-  const parts = cleaned.split('/');
-  if (parts.length === 3) {
-    const day = Number.parseInt(parts[0], 10);
-    const month = Number.parseInt(parts[1], 10) - 1;
-    const year = Number.parseInt(parts[2], 10);
-    if (!Number.isNaN(day) && !Number.isNaN(month) && !Number.isNaN(year)) {
-      return new Date(Date.UTC(year, month, day));
-    }
+/** Limpia el prefijo del nombre de línea para dejar solo el número puro del listado (ej: "BOTA 25151" -> "25151") */
+function cleanNumeroListado(rawIdOrLista: string, lineaNombre?: string): string {
+  let val = rawIdOrLista.trim();
+  if (lineaNombre) {
+    const prefixRegex = new RegExp(`^${lineaNombre.trim()}\\s+`, 'i');
+    val = val.replace(prefixRegex, '');
   }
-  return new Date();
+  for (const known of KNOWN_LINEAS_FALLBACK) {
+    const prefixRegex = new RegExp(`^${known}\\s+`, 'i');
+    val = val.replace(prefixRegex, '');
+  }
+  return val.trim();
+}
+
+/** Parsea una fecha en formato "DD/MM/YYYY" o "DD / MM / YYYY" a objeto Date UTC, validando que el año esté en rango 2020-2030 */
+function parseDate(dateStr?: string, fallbackDateStr?: string): Date {
+  const tryParse = (str?: string): Date | null => {
+    if (!str) return null;
+    const cleaned = str.replace(/\s+/g, '');
+    const parts = cleaned.split('/');
+    if (parts.length === 3) {
+      const day = Number.parseInt(parts[0], 10);
+      const month = Number.parseInt(parts[1], 10) - 1;
+      const year = Number.parseInt(parts[2], 10);
+      if (!Number.isNaN(day) && !Number.isNaN(month) && !Number.isNaN(year)) {
+        if (year >= 2020 && year <= 2030) {
+          return new Date(Date.UTC(year, month, day));
+        }
+      }
+    }
+    return null;
+  };
+
+  const primary = tryParse(dateStr);
+  if (primary) return primary;
+
+  const fallback = tryParse(fallbackDateStr);
+  if (fallback) return fallback;
+
+  // Fallback seguro si la fecha original era corrupta (ej: 0300) y no hubo fecha de evento: año 2025
+  return new Date(Date.UTC(2025, 0, 1));
 }
 
 async function run(): Promise<void> {
@@ -80,11 +107,25 @@ async function run(): Promise<void> {
   });
   const lineaMap = new Map<string, { id: number; area: string; departamentoId: number }>();
   for (const l of lineasDb) {
-    lineaMap.set(l.nombre.trim().toUpperCase(), {
+    const info = {
       id: l.id,
       area: l.area,
       departamentoId: l.departamentoId,
-    });
+    };
+    lineaMap.set(l.nombre.trim().toUpperCase(), info);
+    // Mapear variaciones comunes de plural / singular
+    if (l.nombre.trim().toUpperCase() === 'CINTO') {
+      lineaMap.set('CINTOS', info);
+    }
+    if (l.nombre.trim().toUpperCase() === 'BOLSAS') {
+      lineaMap.set('BOLSA', info);
+    }
+    if (l.nombre.trim().toUpperCase() === 'CHAMARRAS') {
+      lineaMap.set('CHAMARRA', info);
+    }
+    if (l.nombre.trim().toUpperCase() === 'BILLETERAS') {
+      lineaMap.set('BILLETERA', info);
+    }
   }
 
   const deptoDefault = await prisma.departamento.findFirst({
@@ -124,11 +165,20 @@ async function run(): Promise<void> {
     const fecha = parts[4]?.trim();
 
     if (id && !id.startsWith('x') && id !== 'LINEA / MAQ LISTA') {
+      const lineaNombre = linea || 'BOTA';
+      const cleanNum = cleanNumeroListado(lista || id, lineaNombre);
+
+      // Corrección de error de captura en ERP: 26802 viene con 03/08/2027 cuando fue operado en 2026
+      let fechaLimpia = fecha || '01/01/2025';
+      if (cleanNum === '26802' || fechaLimpia.includes('/2027')) {
+        fechaLimpia = fechaLimpia.replace('/2027', '/2026');
+      }
+
       listadosMap.set(id, {
         id,
-        lineaNombre: linea || 'BOTA',
-        numeroListado: lista || id,
-        fechaRequeridaStr: fecha || '01/01/2025',
+        lineaNombre,
+        numeroListado: cleanNum,
+        fechaRequeridaStr: fechaLimpia,
       });
     }
   }
@@ -180,12 +230,12 @@ async function run(): Promise<void> {
       // Deducir línea y número
       const matchedLine = KNOWN_LINEAS_FALLBACK.find((l) => id.startsWith(`${l} `));
       let lineaNombre = 'BOTA';
-      let numeroListado = id;
 
       if (matchedLine) {
         lineaNombre = matchedLine;
-        numeroListado = id.substring(matchedLine.length).trim();
       }
+
+      const cleanNum = cleanNumeroListado(id, lineaNombre);
 
       // Buscar una fecha representativa en sus eventos
       const evMap = eventsById.get(id);
@@ -202,13 +252,19 @@ async function run(): Promise<void> {
       listadosMap.set(id, {
         id,
         lineaNombre,
-        numeroListado,
+        numeroListado: cleanNum,
         fechaRequeridaStr: fechaStr,
       });
     }
   }
 
   console.log(`📦 Universo consolidado: ${listadosMap.size} listados listos para procesar.`);
+
+  // Detectar y resolver colisiones cruzadas de números idénticos en distintas líneas
+  const numeroCounts = new Map<string, number>();
+  for (const item of listadosMap.values()) {
+    numeroCounts.set(item.numeroListado, (numeroCounts.get(item.numeroListado) || 0) + 1);
+  }
 
   // 7. Procesar e insertar / actualizar en lotes
   let insertados = 0;
@@ -237,6 +293,15 @@ async function run(): Promise<void> {
       // Evaluar estatus de cada frente
       const evMap = eventsById.get(item.id) || new Map<string, string>();
 
+      // Obtener una fecha válida de eventos para fallback de fechas corruptas
+      let validEventDateStr: string | undefined = undefined;
+      for (const f of evMap.values()) {
+        if (f && f.includes('/20')) {
+          validEventDateStr = f;
+          break;
+        }
+      }
+
       const frentesData = requiredFrentes.map((frente) => {
         const hasDescontado = evMap.has(`DESCONTADO ${frente}`);
         const hasEntregado = evMap.has(`ENTREGADO ${frente}`);
@@ -249,16 +314,16 @@ async function run(): Promise<void> {
 
         if (hasDescontado) {
           estadoFrente = 'DESCONTADO';
-          fechaDescontado = parseDate(evMap.get(`DESCONTADO ${frente}`));
-          fechaEntregado = parseDate(evMap.get(`ENTREGADO ${frente}`) || evMap.get(`DESCONTADO ${frente}`));
-          fechaSeparado = parseDate(evMap.get(`SEPARADO ${frente}`) || evMap.get(`DESCONTADO ${frente}`));
+          fechaDescontado = parseDate(evMap.get(`DESCONTADO ${frente}`), validEventDateStr);
+          fechaEntregado = parseDate(evMap.get(`ENTREGADO ${frente}`) || evMap.get(`DESCONTADO ${frente}`), validEventDateStr);
+          fechaSeparado = parseDate(evMap.get(`SEPARADO ${frente}`) || evMap.get(`DESCONTADO ${frente}`), validEventDateStr);
         } else if (hasEntregado) {
           estadoFrente = 'ENTREGADO';
-          fechaEntregado = parseDate(evMap.get(`ENTREGADO ${frente}`));
-          fechaSeparado = parseDate(evMap.get(`SEPARADO ${frente}`) || evMap.get(`ENTREGADO ${frente}`));
+          fechaEntregado = parseDate(evMap.get(`ENTREGADO ${frente}`), validEventDateStr);
+          fechaSeparado = parseDate(evMap.get(`SEPARADO ${frente}`) || evMap.get(`ENTREGADO ${frente}`), validEventDateStr);
         } else if (hasSeparado) {
           estadoFrente = 'SEPARADO';
-          fechaSeparado = parseDate(evMap.get(`SEPARADO ${frente}`));
+          fechaSeparado = parseDate(evMap.get(`SEPARADO ${frente}`), validEventDateStr);
         }
 
         return {
@@ -273,6 +338,22 @@ async function run(): Promise<void> {
         };
       });
 
+      const fechaRequerida = parseDate(item.fechaRequeridaStr, validEventDateStr);
+      const anioRequerido = fechaRequerida.getFullYear();
+
+      // Regla de depuración histórica: listados de 2024 y 2025 se marcan directamente como DESCONTADO
+      if (anioRequerido < 2026) {
+        for (const f of frentesData) {
+          f.estado = 'DESCONTADO';
+          if (!f.fechaSeparado) f.fechaSeparado = fechaRequerida;
+          if (!f.separadoPorId) f.separadoPorId = defaultUserId;
+          if (!f.fechaEntregado) f.fechaEntregado = fechaRequerida;
+          if (!f.entregadoPorId) f.entregadoPorId = defaultUserId;
+          if (!f.fechaDescontado) f.fechaDescontado = fechaRequerida;
+          if (!f.descontadoPorId) f.descontadoPorId = defaultUserId;
+        }
+      }
+
       // Calcular estado global del listado
       const estadosFrentes = frentesData.map((f) => f.estado);
       const globalEstado = (() => {
@@ -283,14 +364,14 @@ async function run(): Promise<void> {
         return 'PENDIENTE';
       })();
 
-      const fechaRequerida = parseDate(item.fechaRequeridaStr);
-
-      // Usar item.id como numeroListado único garantizado (evita colisiones cruzadas)
-      const numeroListadoUnico = item.id;
+      // Si el número de listado limpio es 100% único, se guarda como tal (ej: "25151").
+      // Si existiese colisión entre dos líneas distintas (ej: "26661" en CINTOS y BOTA), se desambigua con su línea.
+      const isColliding = (numeroCounts.get(item.numeroListado) || 0) > 1;
+      const numeroListadoAGuardar = isColliding ? item.id : item.numeroListado;
 
       // Inserción / Actualización idempotente
       await prisma.listadoMaterial.upsert({
-        where: { numeroListado: numeroListadoUnico },
+        where: { numeroListado: numeroListadoAGuardar },
         update: {
           estado: globalEstado,
           fechaRequerida,
@@ -311,7 +392,7 @@ async function run(): Promise<void> {
           },
         },
         create: {
-          numeroListado: numeroListadoUnico,
+          numeroListado: numeroListadoAGuardar,
           fechaRequerida,
           departamentoId: lineaInfo.departamentoId,
           lineaProduccionId: lineaInfo.id,

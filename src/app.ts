@@ -27,7 +27,17 @@ export const createApp = (): Express => {
       credentials: true,
     }),
   );
-  app.use(compression());
+  app.use(
+    compression({
+      filter: (req, res) => {
+        // No comprimir streams de eventos SSE para evitar retención en búfer
+        if (req.path.endsWith("/stream") || req.headers.accept === "text/event-stream") {
+          return false;
+        }
+        return compression.filter(req, res);
+      },
+    }),
+  );
 
   // 3. Parser de cookies ligero y sin dependencias externas
   app.use((req, _res, next) => {

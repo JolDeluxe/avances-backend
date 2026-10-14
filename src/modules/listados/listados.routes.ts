@@ -18,6 +18,13 @@ const router = Router();
 // Todas las rutas requieren autenticación
 router.use(authenticate);
 
+// ─── Stream de Tiempo Real (SSE) ──────────────────────────────────────────────
+router.get(
+  "/stream",
+  requirePermission(PERMISOS.LISTADO_VER),
+  (req, res, next) => listadosController.streamListados(req, res, next),
+);
+
 // ─── Consulta ─────────────────────────────────────────────────────────────────
 
 router.get(

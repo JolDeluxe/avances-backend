@@ -54,14 +54,21 @@ async function main() {
 
   // 2. Líneas de Producción institucionales de Materia Prima
   console.log("2. Sincronizando líneas de producción institucionales...");
-  const lineasMateriaPrimaBase: Array<{ codigo: string; nombre: string; area: "BOTA" | "ACCESORIOS" }> = [
-    { codigo: "BOTA", nombre: "BOTA", area: "BOTA" },
-    { codigo: "BOTA_FAC", nombre: "BOTA FAC", area: "BOTA" },
-    { codigo: "BOTA_LAG", nombre: "BOTA LAG", area: "BOTA" },
-    { codigo: "BILLETERAS", nombre: "BILLETERAS", area: "ACCESORIOS" },
-    { codigo: "BOLSAS", nombre: "BOLSAS", area: "ACCESORIOS" },
-    { codigo: "CHAMARRAS", nombre: "CHAMARRAS", area: "ACCESORIOS" },
-    { codigo: "CINTOS", nombre: "CINTOS", area: "ACCESORIOS" },
+  const lineasMateriaPrimaBase: Array<{ codigo: string; nombre: string; area: "BOTA" | "ACCESORIOS"; orden: number }> = [
+    // BOTA:
+    { codigo: "BOTA", nombre: "BOTA", area: "BOTA", orden: 1 },
+    { codigo: "COMPL_BOTA", nombre: "COMPL. BOTA", area: "BOTA", orden: 2 },
+    { codigo: "BOTA_LAG", nombre: "BOTA LAG", area: "BOTA", orden: 3 },
+    { codigo: "BOTA_FAC", nombre: "BOTA FAC", area: "BOTA", orden: 4 },
+    { codigo: "CAJA_ESPECIAL", nombre: "CAJA ESPECIAL", area: "BOTA", orden: 5 },
+
+    // ACCESORIOS:
+    { codigo: "CINTOS", nombre: "CINTOS", area: "ACCESORIOS", orden: 1 },
+    { codigo: "CINTOS_MAQ", nombre: "CINTOS MAQ", area: "ACCESORIOS", orden: 2 },
+    { codigo: "BILLETERAS", nombre: "BILLETERAS", area: "ACCESORIOS", orden: 3 },
+    { codigo: "CHAMARRAS", nombre: "CHAMARRAS", area: "ACCESORIOS", orden: 4 },
+    { codigo: "BETA_7", nombre: "BETA 7", area: "ACCESORIOS", orden: 5 },
+    { codigo: "BOLSAS", nombre: "BOLSAS", area: "ACCESORIOS", orden: 6 },
   ];
 
   const lineasInstMap: Record<string, { id: number; codigo: string }> = {};
@@ -73,6 +80,7 @@ async function main() {
         nombre: lin.nombre,
         departamentoId: deptoMateriaPrima.id,
         area: lin.area,
+        orden: lin.orden,
         estado: "ACTIVO",
       },
       create: {
@@ -80,6 +88,7 @@ async function main() {
         nombre: lin.nombre,
         departamentoId: deptoMateriaPrima.id,
         area: lin.area,
+        orden: lin.orden,
         estado: "ACTIVO",
       },
     });
@@ -139,6 +148,7 @@ async function main() {
         PERMISOS.LISTADO_ENTREGAR,
         PERMISOS.LISTADO_RETROCEDER,
         PERMISOS.LISTADO_CANCELAR,
+        PERMISOS.LISTADO_DESCONTAR,
         PERMISOS.REGISTRO_SISTEMA_VER,
       ],
     },

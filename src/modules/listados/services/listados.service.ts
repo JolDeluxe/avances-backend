@@ -1,6 +1,7 @@
 import { prisma } from "../../../config/database";
 import { Prisma } from "@prisma/client";
 import { scopeService } from "../../auth/services/scope.service";
+import { listadosEventPublisher } from "../events";
 import { listadosQueryService } from "./listados-query.service";
 import { listadosLifecycleService } from "./listados-lifecycle.service";
 import { NotFoundError, BadRequestError, ConflictError } from "../../../utils/errors";
@@ -71,7 +72,7 @@ export class ListadosService {
       throw new ConflictError(`Ya existe un listado con el número '${data.numeroListado}'`);
     }
 
-    return prisma.$transaction(async (tx) => {
+    const resultado = await prisma.$transaction(async (tx) => {
       const frentesData: Prisma.ListadoSurtidoFrenteCreateWithoutListadoInput[] = [
         { tipoFrente: "DIRECTOS", estado: "PENDIENTE" },
         { tipoFrente: "INDIRECTOS", estado: "PENDIENTE" }
@@ -112,6 +113,25 @@ export class ListadosService {
 
       return nuevo;
     });
+
+    // Publicación post-commit: la transacción ya confirmó con éxito en BD
+    listadosEventPublisher.publish({
+      id: crypto.randomUUID(),
+      tipo: "LISTADO_CREADO",
+      timestamp: new Date().toISOString(),
+      listadoId: resultado.id,
+      numeroListado: resultado.numeroListado,
+      departamentoId: resultado.departamentoId,
+      lineaProduccionId: resultado.lineaProduccionId,
+      lineaCodigo: resultado.lineaProduccion.codigo,
+      estadoGlobal: resultado.estado,
+      frentes: resultado.frentes.map((f) => ({
+        tipoFrente: f.tipoFrente,
+        estado: f.estado,
+      })),
+    });
+
+    return resultado;
   }
 
   /**
@@ -123,7 +143,7 @@ export class ListadosService {
     const scope = await scopeService.resolveUserScope(usuarioId);
     const scopeWhere = scopeService.buildScopeWhere(scope);
 
-    return prisma.$transaction(async (tx) => {
+    const actualizado = await prisma.$transaction(async (tx) => {
       const listado = await tx.listadoMaterial.findFirst({
         where: {
           id,
@@ -141,11 +161,26 @@ export class ListadosService {
         throw new NotFoundError(`Listado con ID ${id} no encontrado o fuera de su alcance autorizado`);
       }
 
-      // Validar que esté en PENDIENTE
-      if (listado.estado !== "PENDIENTE") {
-        throw new ConflictError(
-          `No se pueden modificar los datos de un listado en estado ${listado.estado}. Para corregirlo, debe retroceder primero a PENDIENTE.`,
-        );
+      // Validar si puede ser editado:
+      // Para usuarios normales, solo en PENDIENTE.
+      // Para ADMIN / SUPER_ADMIN, se permite editar salvo que ya esté CANCELADO, DESCONTADO o con todos los frentes completos en ENTREGADO/DESCONTADO.
+      const frentes = await tx.listadoSurtidoFrente.findMany({ where: { listadoMaterialId: id } });
+      const todosDescontados = frentes.length > 0 && frentes.every(
+        (f) => f.estado === "DESCONTADO"
+      );
+
+      if (scope.rolCodigo === "SUPER_ADMIN" || scope.rolCodigo === "ADMIN") {
+        if (listado.estado === "CANCELADO" || listado.estado === "DESCONTADO" || todosDescontados) {
+          throw new ConflictError(
+            `No se pueden modificar los datos de un listado ${listado.estado === "CANCELADO" ? "cancelado" : "cuyos materiales ya fueron descontados en el sistema en su totalidad"}.`
+          );
+        }
+      } else {
+        if (listado.estado !== "PENDIENTE") {
+          throw new ConflictError(
+            `No se pueden modificar los datos de un listado en estado ${listado.estado}. Para corregirlo, debe retroceder primero a PENDIENTE.`,
+          );
+        }
       }
 
       let nuevaLineaId = listado.lineaProduccionId;
@@ -253,9 +288,29 @@ export class ListadosService {
           lineaProduccion: { select: { id: true, codigo: true, nombre: true } },
           departamento: { select: { id: true, codigo: true, nombre: true } },
           creadoPorUsuario: { select: { id: true, usuario: true, nombre: true } },
+          frentes: true,
         },
       });
     });
+
+    // Publicación post-commit
+    listadosEventPublisher.publish({
+      id: crypto.randomUUID(),
+      tipo: "LISTADO_ACTUALIZADO",
+      timestamp: new Date().toISOString(),
+      listadoId: actualizado.id,
+      numeroListado: actualizado.numeroListado,
+      departamentoId: actualizado.departamentoId,
+      lineaProduccionId: actualizado.lineaProduccionId,
+      lineaCodigo: actualizado.lineaProduccion.codigo,
+      estadoGlobal: actualizado.estado,
+      frentes: actualizado.frentes.map((f) => ({
+        tipoFrente: f.tipoFrente,
+        estado: f.estado,
+      })),
+    });
+
+    return actualizado;
   }
 }
 

@@ -51,8 +51,8 @@ export class UsersController {
     return sendSuccess(res, resultado, "Contraseña revelada exitosamente");
   }
 
-  async getCatalogs(_req: Request, res: Response): Promise<Response> {
-    const catalogos = await usersService.getCatalogs();
+  async getCatalogs(req: Request, res: Response): Promise<Response> {
+    const catalogos = await usersService.getCatalogs(req.user?.usuarioId);
     return sendSuccess(res, catalogos, "Catálogos para gestión de usuarios obtenidos exitosamente");
   }
 }
