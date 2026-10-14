@@ -65,7 +65,7 @@ function parseDate(dateStr?: string, fallbackDateStr?: string): Date {
     if (!str) return null;
     const cleaned = str.replace(/\s+/g, '');
     const parts = cleaned.split('/');
-    if (parts.length === 3) {
+    if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
       const day = Number.parseInt(parts[0], 10);
       const month = Number.parseInt(parts[1], 10) - 1;
       const year = Number.parseInt(parts[2], 10);
@@ -158,7 +158,9 @@ async function run(): Promise<void> {
   const listadosMap = new Map<string, ListadoRawItem>();
 
   for (let i = 1; i < lines01.length; i++) {
-    const parts = lines01[i].split('\t');
+    const currentLine = lines01[i];
+    if (!currentLine) continue;
+    const parts = currentLine.split('\t');
     const id = parts[1]?.trim();
     const linea = parts[2]?.trim();
     const lista = parts[3]?.trim();
@@ -206,7 +208,9 @@ async function run(): Promise<void> {
     const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
 
     for (let i = 1; i < lines.length; i++) {
-      const [id, estatus, fecha] = lines[i].split('\t');
+      const currentStatusLine = lines[i];
+      if (!currentStatusLine) continue;
+      const [id, estatus, fecha] = currentStatusLine.split('\t');
       const tId = id?.trim();
       const tEst = estatus?.trim();
       const tFec = fecha?.trim();
@@ -429,11 +433,22 @@ async function run(): Promise<void> {
   console.log('='.repeat(70));
 }
 
-run()
-  .catch((err) => {
-    console.error('❌ Error fatal durante la importación:', err);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+export async function syncHistorico(options?: { clean?: boolean }): Promise<void> {
+  if (options?.clean && !process.argv.includes('--clean')) {
+    process.argv.push('--clean');
+  }
+  await run();
+}
+
+// Ejecución directa por CLI: bun scripts/sync-historico.ts
+if (import.meta.main) {
+  run()
+    .catch((err) => {
+      console.error('❌ Error fatal durante la importación:', err);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
+
