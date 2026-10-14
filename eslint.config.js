@@ -17,6 +17,20 @@ export default tseslint.config(
     },
   },
   {
+    files: ["**/*.cjs"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: {
+        module: "readonly",
+        exports: "writable",
+        require: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+      },
+    },
+  },
+  {
     ignores: ["node_modules/", "dist/", "coverage/", "prisma/migrations/"],
   },
 );
+

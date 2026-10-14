@@ -278,36 +278,35 @@ export class UsersService {
       return "usuario";
     }
 
-    let usernameBase = "";
-    if (tokens.length === 1 && tokens[0]) {
-      usernameBase = tokens[0];
-    } else {
-      const primerNombre = tokens[0] || "u";
-      const inicial = primerNombre.charAt(0);
+    const usernameBaseRaw =
+      tokens.length === 1 && tokens[0]
+        ? tokens[0]
+        : (() => {
+            const primerNombre = tokens[0] || "u";
+            const inicial = primerNombre.charAt(0);
 
-      // Reconstruir apellidos uniendo partículas (ej: ["montes", "de", "oca"] -> "montesdeoca")
-      const partesRestantes = tokens.slice(1);
-      const apellidoTokens: string[] = [];
+            // Reconstruir apellidos uniendo partículas (ej: ["montes", "de", "oca"] -> "montesdeoca")
+            const partesRestantes = tokens.slice(1);
+            const apellidoTokens: string[] = [];
 
-      for (let i = 0; i < partesRestantes.length; i++) {
-        const t = partesRestantes[i];
-        if (!t) continue;
-        if (PARTICULAS.has(t)) {
-          // Si es partícula y le sigue otra palabra, concatenar
-          if (i + 1 < partesRestantes.length) {
-            apellidoTokens.push(t);
-          }
-        } else {
-          apellidoTokens.push(t);
-        }
-      }
+            for (let i = 0; i < partesRestantes.length; i++) {
+              const t = partesRestantes[i];
+              if (!t) continue;
+              if (PARTICULAS.has(t)) {
+                // Si es partícula y le sigue otra palabra, concatenar
+                if (i + 1 < partesRestantes.length) {
+                  apellidoTokens.push(t);
+                }
+              } else {
+                apellidoTokens.push(t);
+              }
+            }
 
-      const apellidoUnido = apellidoTokens.join("");
-      usernameBase = `${inicial}${apellidoUnido}`;
-    }
+            const apellidoUnido = apellidoTokens.join("");
+            return `${inicial}${apellidoUnido}`;
+          })();
 
-    // Limitar longitud base
-    usernameBase = usernameBase.slice(0, 30);
+    let usernameBase = usernameBaseRaw.slice(0, 30);
     if (!usernameBase || usernameBase.length < 2) {
       usernameBase = "user";
     }
