@@ -315,15 +315,20 @@ export class SessionService {
 
   /**
    * Obtiene la lista pública de nombres de usuarios activos para el selector de Login.
-   * Solo expone campos no sensibles: id, nombre y usuario.
+   * Expone campos no sensibles: id, nombre, usuario y código de rol para ordenamiento UI.
    */
-  async getUsuariosActivosPublicos(): Promise<{ id: number; nombre: string; usuario: string }[]> {
+  async getUsuariosActivosPublicos(): Promise<{ id: number; nombre: string; usuario: string; rol?: { codigo: string } }[]> {
     return prisma.usuario.findMany({
       where: { estado: "ACTIVO" },
       select: {
         id: true,
         nombre: true,
         usuario: true,
+        rol: {
+          select: {
+            codigo: true,
+          },
+        },
       },
       orderBy: { nombre: "asc" },
     });
