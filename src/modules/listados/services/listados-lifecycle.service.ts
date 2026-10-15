@@ -97,7 +97,7 @@ export class ListadosLifecycleService {
           lineaProduccion: { estado: "ACTIVO" },
         },
         include: {
-          lineaProduccion: { select: { id: true, codigo: true, nombre: true } },
+          lineaProduccion: { select: { id: true, codigo: true, nombre: true, permiteBolsas: true, permiteDirectos: true, permiteIndirectos: true } },
           departamento: { select: { id: true, codigo: true, nombre: true } },
           frentes: true
         },
@@ -118,8 +118,8 @@ export class ListadosLifecycleService {
         throw new BadRequestError(`El frente ${tipoFrente} no es válido para el listado '${listado.numeroListado}'`);
       }
 
-      if (tipoFrente === "BOLSAS" && listado.lineaProduccion.codigo !== "BOLSAS") {
-        throw new BadRequestError(`El frente BOLSAS solamente está permitido cuando la línea del listado es BOLSAS`);
+      if (tipoFrente === "BOLSAS" && !listado.lineaProduccion.permiteBolsas && listado.lineaProduccion.codigo !== "BOLSAS") {
+        throw new BadRequestError(`El frente BOLSAS no está habilitado para la línea '${listado.lineaProduccion.nombre}'`);
       }
 
       if (frente.estado === "DESCONTADO") {

@@ -210,6 +210,9 @@ export class DepartmentsService {
         departamentoId: departmentId,
         area: areaEfectiva,
         orden: nuevoOrden,
+        ...(data.permiteDirectos !== undefined && { permiteDirectos: data.permiteDirectos }),
+        ...(data.permiteIndirectos !== undefined && { permiteIndirectos: data.permiteIndirectos }),
+        ...(data.permiteBolsas !== undefined && { permiteBolsas: data.permiteBolsas }),
         estado: "ACTIVO",
       },
     });
@@ -220,7 +223,7 @@ export class DepartmentsService {
         accion: "LINEA_PRODUCCION_CREADA",
         entidad: "lineas_produccion",
         entidadId: linea.id,
-        detalle: `Línea creada en depto ${departamento.codigo}: ${linea.codigo} - ${linea.nombre} [${areaEfectiva}] con orden ${nuevoOrden}`,
+        detalle: `Línea creada en depto ${departamento.codigo}: ${linea.codigo} - ${linea.nombre} [${areaEfectiva}] con orden ${nuevoOrden} (DIR:${linea.permiteDirectos}, IND:${linea.permiteIndirectos}, BOL:${linea.permiteBolsas})`,
       },
     });
 
@@ -250,6 +253,9 @@ export class DepartmentsService {
       data: {
         ...(cleanNombre && { nombre: cleanNombre }),
         ...(data.area && { area: data.area }),
+        ...(data.permiteDirectos !== undefined && { permiteDirectos: data.permiteDirectos }),
+        ...(data.permiteIndirectos !== undefined && { permiteIndirectos: data.permiteIndirectos }),
+        ...(data.permiteBolsas !== undefined && { permiteBolsas: data.permiteBolsas }),
         ...(data.estado && { estado: data.estado }),
       },
     });

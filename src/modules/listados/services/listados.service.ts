@@ -73,12 +73,20 @@ export class ListadosService {
     }
 
     const resultado = await prisma.$transaction(async (tx) => {
-      const frentesData: Prisma.ListadoSurtidoFrenteCreateWithoutListadoInput[] = [
-        { tipoFrente: "DIRECTOS", estado: "PENDIENTE" },
-        { tipoFrente: "INDIRECTOS", estado: "PENDIENTE" }
-      ];
-      if (linea.codigo === "BOLSAS") {
+      const frentesData: Prisma.ListadoSurtidoFrenteCreateWithoutListadoInput[] = [];
+      if (linea.permiteDirectos) {
+        frentesData.push({ tipoFrente: "DIRECTOS", estado: "PENDIENTE" });
+      }
+      if (linea.permiteIndirectos) {
+        frentesData.push({ tipoFrente: "INDIRECTOS", estado: "PENDIENTE" });
+      }
+      if (linea.permiteBolsas) {
         frentesData.push({ tipoFrente: "BOLSAS", estado: "PENDIENTE" });
+      }
+      // Salvaguarda: si por alguna inconsistencia no tuviese ninguno, default DIRECTOS e INDIRECTOS
+      if (frentesData.length === 0) {
+        frentesData.push({ tipoFrente: "DIRECTOS", estado: "PENDIENTE" });
+        frentesData.push({ tipoFrente: "INDIRECTOS", estado: "PENDIENTE" });
       }
 
       const nuevo = await tx.listadoMaterial.create({
@@ -252,12 +260,19 @@ export class ListadosService {
       if (Object.keys(updateData).length > 0) {
         if (data.lineaProduccionId && data.lineaProduccionId !== listado.lineaProduccionId) {
           const nuevaLinea = await tx.lineaProduccion.findUniqueOrThrow({ where: { id: nuevaLineaId } });
-          const frentesData: Prisma.ListadoSurtidoFrenteCreateWithoutListadoInput[] = [
-            { tipoFrente: "DIRECTOS", estado: "PENDIENTE" },
-            { tipoFrente: "INDIRECTOS", estado: "PENDIENTE" }
-          ];
-          if (nuevaLinea.codigo === "BOLSAS") {
+          const frentesData: Prisma.ListadoSurtidoFrenteCreateWithoutListadoInput[] = [];
+          if (nuevaLinea.permiteDirectos) {
+            frentesData.push({ tipoFrente: "DIRECTOS", estado: "PENDIENTE" });
+          }
+          if (nuevaLinea.permiteIndirectos) {
+            frentesData.push({ tipoFrente: "INDIRECTOS", estado: "PENDIENTE" });
+          }
+          if (nuevaLinea.permiteBolsas) {
             frentesData.push({ tipoFrente: "BOLSAS", estado: "PENDIENTE" });
+          }
+          if (frentesData.length === 0) {
+            frentesData.push({ tipoFrente: "DIRECTOS", estado: "PENDIENTE" });
+            frentesData.push({ tipoFrente: "INDIRECTOS", estado: "PENDIENTE" });
           }
           await tx.listadoSurtidoFrente.deleteMany({ where: { listadoMaterialId: id } });
           await tx.listadoMaterial.update({
