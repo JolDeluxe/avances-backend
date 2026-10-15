@@ -90,15 +90,10 @@ export class ListadosQueryService {
         };
       } else if (scope.rolCodigo === "REGISTRADOR") {
         // Regla de Negocio REGISTRADOR:
-        // Solo ve los listados registrados por él que estén en PENDIENTE y que NO tengan ningún avance
-        // (es decir, ningún frente separado, entregado ni descontado). En cuanto Almacén interactúe, desaparecen.
-        where.creadoPorUsuarioId = usuarioId;
+        // Ve TODOS los listados en estado PENDIENTE de su departamento (registrados por él o por cualquier otro registrador).
+        // Así si hay 10 registradores en el departamento, todos ven el trabajo de todos.
+        where.departamentoId = scope.departamentoId;
         where.estado = "PENDIENTE";
-        where.frentes = {
-          none: {
-            estado: { in: ["SEPARADO", "ENTREGADO", "DESCONTADO"] },
-          },
-        };
       }
     }
 
