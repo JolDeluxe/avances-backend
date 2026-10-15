@@ -560,7 +560,7 @@ export class UsersService {
       throw new NotFoundError(`Usuario con ID ${id} no encontrado`);
     }
 
-    // Blindaje Jerárquico: ADMIN no puede modificar a un SUPER_ADMIN
+    // Blindaje Jerárquico: Usuarios no SUPER_ADMIN (ej. ADMIN) no pueden modificar a un SUPER_ADMIN
     if (usuarioActual.rol.codigo === "SUPER_ADMIN" && actorId && actorId !== usuarioActual.id) {
       const scope = await scopeService.resolveUserScope(actorId);
       if (!scope.esGlobal) {
@@ -568,11 +568,14 @@ export class UsersService {
       }
     }
 
-    // Protección de SUPER_ADMIN: No permitir que otro usuario cambie la contraseña de un SUPER_ADMIN
-    if (usuarioActual.rol.codigo === "SUPER_ADMIN" && data.password && actorId !== id) {
-      throw new ForbiddenError(
-        "Operación denegada: La contraseña de un SUPER_ADMIN no puede ser modificada por otro usuario",
-      );
+    // Protección de contraseña de SUPER_ADMIN: Solo el propio SUPER_ADMIN u otro SUPER_ADMIN puede cambiarla (no roles inferiores)
+    if (usuarioActual.rol.codigo === "SUPER_ADMIN" && data.password && actorId && actorId !== id) {
+      const scope = await scopeService.resolveUserScope(actorId);
+      if (!scope.esGlobal) {
+        throw new ForbiddenError(
+          "Operación denegada: La contraseña de un SUPER_ADMIN solo puede ser modificada por un SUPER_ADMIN",
+        );
+      }
     }
 
     // Aislamiento Departamental:
@@ -962,12 +965,16 @@ export class UsersService {
     }
 
     // Regla de Protección de SUPER_ADMIN:
-    // - Si el usuario objetivo es SUPER_ADMIN, nadie puede cambiarle la contraseña administrativamente
-    // (ni ADMIN ni otro SUPER_ADMIN). Cada SUPER_ADMIN debe cambiar su propia contraseña por el flujo de autoservicio.
-    if (targetUser.rol.codigo === "SUPER_ADMIN") {
-      throw new ForbiddenError(
-        "Operación denegada: La contraseña de un SUPER_ADMIN no puede ser modificada por otro usuario",
-      );
+    // - Si el usuario objetivo es SUPER_ADMIN y el actor no tiene alcance global (ej. es un ADMIN),
+    // no se le permite modificar la contraseña de un SUPER_ADMIN.
+    // - Un SUPER_ADMIN o el propio usuario sí puede restablecerla.
+    if (targetUser.rol.codigo === "SUPER_ADMIN" && actorId && actorId !== targetUserId) {
+      const scope = await scopeService.resolveUserScope(actorId);
+      if (!scope.esGlobal) {
+        throw new ForbiddenError(
+          "Operación denegada: La contraseña de un SUPER_ADMIN no puede ser modificada por otro usuario sin rol SUPER_ADMIN",
+        );
+      }
     }
 
     if (targetUser.estado !== "ACTIVO") {

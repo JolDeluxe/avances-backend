@@ -7,9 +7,17 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
+const normalizeMariaDbUrl = (url: string): string => {
+  let normalized = url.replace(/^mysql:\/\//i, "mariadb://");
+  if (!normalized.includes("allowPublicKeyRetrieval")) {
+    normalized += (normalized.includes("?") ? "&" : "?") + "allowPublicKeyRetrieval=true";
+  }
+  return normalized;
+};
+
 const createPrismaClient = (): PrismaClient => {
   // Prisma 7 requiere pasar el adapter al constructor de PrismaClient
-  const adapter = new PrismaMariaDb(env.DATABASE_URL);
+  const adapter = new PrismaMariaDb(normalizeMariaDbUrl(env.DATABASE_URL));
 
   return new PrismaClient({
     adapter,

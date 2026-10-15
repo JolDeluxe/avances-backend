@@ -40,8 +40,14 @@ export const updateUserSchema = z.object({
     .optional(),
   password: z
     .string()
-    .min(6, "La contraseña debe tener al menos 6 caracteres")
-    .max(100, "La contraseña no debe exceder 100 caracteres")
+    .transform((val) => (val?.trim() === "" ? undefined : val))
+    .pipe(
+      z
+        .string()
+        .min(6, "La contraseña debe tener al menos 6 caracteres")
+        .max(100, "La contraseña no debe exceder 100 caracteres")
+        .optional(),
+    )
     .optional(),
   rolId: z.coerce.number().int().positive().optional(),
   departamentoId: z.coerce.number().int().positive().optional(),
@@ -49,6 +55,7 @@ export const updateUserSchema = z.object({
   tipoMaterialAuditor: z.string().max(100).nullable().optional(),
   estado: z.enum(["ACTIVO", "INACTIVO"]).optional(),
   lineaProduccionIds: z.array(z.coerce.number().int().positive()).optional(),
+  lineasAsignadas: z.array(z.coerce.number().int().positive()).optional(),
   excepciones: z
     .array(
       z.object({
