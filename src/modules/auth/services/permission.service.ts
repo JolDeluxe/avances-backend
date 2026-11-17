@@ -38,8 +38,8 @@ export class PermissionService {
       return [];
     }
 
-    // Si el usuario es SUPER_ADMIN o ADMIN, retorna todos los permisos activos del catálogo
-    if ((usuario.rol.codigo === "SUPER_ADMIN" || usuario.rol.codigo === "ADMIN") && usuario.rol.estado === "ACTIVO") {
+    // Únicamente SUPER_ADMIN conserva acceso incondicional a todos los permisos activos del catálogo
+    if (usuario.rol.codigo === "SUPER_ADMIN" && usuario.rol.estado === "ACTIVO") {
       const todosLosPermisos = await prisma.permiso.findMany({
         where: { estado: "ACTIVO" },
         select: { codigo: true },

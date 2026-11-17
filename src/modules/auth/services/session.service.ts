@@ -1,3 +1,4 @@
+import type { AreaVale } from "@prisma/client";
 import { prisma } from "../../../config/database";
 import { UnauthorizedError } from "../../../utils/errors";
 import { env } from "../../../config/env";
@@ -23,6 +24,14 @@ export interface LoginResult {
     tipoSurtidoAlmacen?: string | null;
     tipoMaterialAuditor?: string | null;
     lineasAsignadas?: { id: number; codigo: string; nombre: string; area?: string }[];
+    areasVale?: AreaVale[];
+    departamentosValeAsignados?: {
+      id: number;
+      codigo: string;
+      nombre: string;
+      areaFija: AreaVale | null;
+      requiereSeleccionArea: boolean;
+    }[];
     permisos: string[];
   };
   accessToken: string;
@@ -47,6 +56,14 @@ export interface RefreshResult {
     tipoSurtidoAlmacen?: string | null;
     tipoMaterialAuditor?: string | null;
     lineasAsignadas?: { id: number; codigo: string; nombre: string; area?: string }[];
+    areasVale?: AreaVale[];
+    departamentosValeAsignados?: {
+      id: number;
+      codigo: string;
+      nombre: string;
+      areaFija: AreaVale | null;
+      requiereSeleccionArea: boolean;
+    }[];
     permisos: string[];
   };
   accessToken: string;
@@ -73,6 +90,21 @@ export class SessionService {
           include: {
             lineaProduccion: {
               select: { id: true, codigo: true, nombre: true, area: true },
+            },
+          },
+        },
+        autorizacionesValeArea: {
+          where: { estado: "ACTIVO" },
+          select: { area: true },
+        },
+        autorizacionesValeDepartamento: {
+          where: {
+            estado: "ACTIVO",
+            departamentoVale: { estado: "ACTIVO" },
+          },
+          include: {
+            departamentoVale: {
+              select: { id: true, codigo: true, nombre: true, areaFija: true, requiereSeleccionArea: true },
             },
           },
         },
@@ -152,6 +184,8 @@ export class SessionService {
         tipoSurtidoAlmacen: usuario.tipoSurtidoAlmacen,
         tipoMaterialAuditor: usuario.tipoMaterialAuditor,
         lineasAsignadas: usuario.lineasAsignadas.map((l) => l.lineaProduccion),
+        areasVale: usuario.autorizacionesValeArea.map((a) => a.area),
+        departamentosValeAsignados: usuario.autorizacionesValeDepartamento.map((d) => d.departamentoVale),
         permisos,
       },
       accessToken,
@@ -181,6 +215,21 @@ export class SessionService {
               include: {
                 lineaProduccion: {
                   select: { id: true, codigo: true, nombre: true, area: true },
+                },
+              },
+            },
+            autorizacionesValeArea: {
+              where: { estado: "ACTIVO" },
+              select: { area: true },
+            },
+            autorizacionesValeDepartamento: {
+              where: {
+                estado: "ACTIVO",
+                departamentoVale: { estado: "ACTIVO" },
+              },
+              include: {
+                departamentoVale: {
+                  select: { id: true, codigo: true, nombre: true, areaFija: true, requiereSeleccionArea: true },
                 },
               },
             },
@@ -252,6 +301,8 @@ export class SessionService {
         tipoSurtidoAlmacen: sesion.usuario.tipoSurtidoAlmacen,
         tipoMaterialAuditor: sesion.usuario.tipoMaterialAuditor,
         lineasAsignadas: sesion.usuario.lineasAsignadas?.map((l) => l.lineaProduccion) ?? [],
+        areasVale: sesion.usuario.autorizacionesValeArea?.map((a) => a.area) ?? [],
+        departamentosValeAsignados: sesion.usuario.autorizacionesValeDepartamento?.map((d) => d.departamentoVale) ?? [],
         permisos,
       },
       accessToken,

@@ -58,3 +58,23 @@ export const requirePermission = (permisoRequerido: PermisoCodigo) => {
     next();
   };
 };
+
+export const requireAnyPermission = (permisosPermitidos: PermisoCodigo[]) => {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      throw new UnauthorizedError("Usuario no autenticado");
+    }
+
+    const tieneAlguno =
+      Array.isArray(req.user.permisos) &&
+      permisosPermitidos.some((permiso) => req.user!.permisos.includes(permiso));
+
+    if (!tieneAlguno) {
+      throw new ForbiddenError(
+        `Acceso denegado: se requiere al menos uno de los permisos [${permisosPermitidos.join(", ")}]`,
+      );
+    }
+
+    next();
+  };
+};

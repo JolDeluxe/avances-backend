@@ -18,5 +18,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", "test/**/*", "prisma/**/*", "prisma.config.ts"]
+  "include": ["src/**/*", "test/**/*", "tests/**/*", "prisma/**/*", "prisma.config.ts"]
 }

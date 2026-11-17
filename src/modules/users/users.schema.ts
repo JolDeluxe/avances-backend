@@ -20,12 +20,14 @@ export const createUserSchema = z.object({
   tipoSurtidoAlmacen: z.string().max(100).nullable().optional(),
   tipoMaterialAuditor: z.string().max(100).nullable().optional(),
   lineaProduccionIds: z.array(z.coerce.number().int().positive()).optional(),
+  areasVale: z.array(z.enum(["BOTA", "ACCESORIOS", "OTRO"])).optional(),
+  departamentosValeIds: z.array(z.coerce.number().int().positive()).optional(),
   excepciones: z
     .array(
       z.object({
         permisoId: z.coerce.number().int().positive("El ID del permiso debe ser válido"),
-        accion: z.literal("CONCEDER", {
-          errorMap: () => ({ message: "Solo se permiten excepciones positivas (CONCEDER)" }),
+        accion: z.enum(["CONCEDER", "DENEGAR"], {
+          errorMap: () => ({ message: "La acción de excepción debe ser CONCEDER o DENEGAR" }),
         }),
       }),
     )
@@ -56,12 +58,14 @@ export const updateUserSchema = z.object({
   estado: z.enum(["ACTIVO", "INACTIVO"]).optional(),
   lineaProduccionIds: z.array(z.coerce.number().int().positive()).optional(),
   lineasAsignadas: z.array(z.coerce.number().int().positive()).optional(),
+  areasVale: z.array(z.enum(["BOTA", "ACCESORIOS", "OTRO"])).optional(),
+  departamentosValeIds: z.array(z.coerce.number().int().positive()).optional(),
   excepciones: z
     .array(
       z.object({
         permisoId: z.coerce.number().int().positive("El ID del permiso debe ser válido"),
-        accion: z.literal("CONCEDER", {
-          errorMap: () => ({ message: "Solo se permiten excepciones positivas (CONCEDER)" }),
+        accion: z.enum(["CONCEDER", "DENEGAR"], {
+          errorMap: () => ({ message: "La acción de excepción debe ser CONCEDER o DENEGAR" }),
         }),
       }),
     )

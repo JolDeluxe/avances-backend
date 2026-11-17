@@ -1,3 +1,4 @@
+import type { AreaVale } from "@prisma/client";
 import { prisma } from "../../config/database";
 import { NotFoundError, ConflictError, BadRequestError, ForbiddenError } from "../../utils/errors";
 import { securityService } from "../auth/services/security.service";
@@ -93,6 +94,27 @@ export class UsersService {
               },
             },
           },
+          autorizacionesValeArea: {
+            where: { estado: "ACTIVO" },
+            select: { area: true },
+          },
+          autorizacionesValeDepartamento: {
+            where: {
+              estado: "ACTIVO",
+              departamentoVale: { estado: "ACTIVO" },
+            },
+            include: {
+              departamentoVale: {
+                select: {
+                  id: true,
+                  codigo: true,
+                  nombre: true,
+                  areaFija: true,
+                  requiereSeleccionArea: true,
+                },
+              },
+            },
+          },
         },
       }),
       // Consulta para el Summary Bar: agrupa/cuenta los usuarios según su rol dentro del alcance del usuario y estado activo/inactivo
@@ -163,6 +185,10 @@ export class UsersService {
         tipoMaterialAuditor: u.tipoMaterialAuditor,
         estado: u.estado,
         lineasAsignadas: lineasOrdenadas,
+        areasVale: u.autorizacionesValeArea.map((a) => a.area),
+        departamentosValeAsignados: u.autorizacionesValeDepartamento
+          .map((d) => d.departamentoVale)
+          .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" })),
         fechaCreacion: u.fechaCreacion,
         fechaActualizacion: u.fechaActualizacion,
       };
@@ -196,6 +222,28 @@ export class UsersService {
           include: {
             lineaProduccion: {
               select: { id: true, codigo: true, nombre: true, area: true, orden: true, departamentoId: true },
+            },
+          },
+        },
+        autorizacionesValeArea: {
+          where: { estado: "ACTIVO" },
+          select: { area: true },
+        },
+        autorizacionesValeDepartamento: {
+          where: {
+            estado: "ACTIVO",
+            departamentoVale: { estado: "ACTIVO" },
+          },
+          include: {
+            departamentoVale: {
+              select: {
+                id: true,
+                codigo: true,
+                nombre: true,
+                areaFija: true,
+                requiereSeleccionArea: true,
+                departamentoId: true,
+              },
             },
           },
         },
@@ -243,6 +291,10 @@ export class UsersService {
       tipoMaterialAuditor: usuario.tipoMaterialAuditor,
       estado: usuario.estado,
       lineasAsignadas: usuario.lineasAsignadas.map((l) => l.lineaProduccion),
+      areasVale: usuario.autorizacionesValeArea.map((a) => a.area),
+      departamentosValeAsignados: usuario.autorizacionesValeDepartamento
+        .map((d) => d.departamentoVale)
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" })),
       excepcionesPermiso: usuario.excepcionesPermiso.map((e) => ({
         id: e.id,
         permisoId: e.permiso.id,
@@ -379,10 +431,12 @@ export class UsersService {
       }
     }
 
-    // 4. Regla de Negocio: Líneas de Producción y Segmentación Operativa
-    // ADMIN, AUDITOR y SUPER_ADMIN NO pertenecen a una línea de producción.
-    // Solo ALMACENISTA se encarga de surtir líneas específicas dentro de su departamento.
+    // 4. Regla de Negocio: Líneas de Producción, Autorizaciones de Vales y Segmentación Operativa
+    // ADMIN, AUDITOR y SUPER_ADMIN NO pertenecen a una línea de producción ni tienen alcance restringido de almacén.
+    // Solo ALMACENISTA se encarga de surtir líneas específicas (Listados) y áreas/departamentos (Vales) dentro de su departamento.
     let lineasParaAsignar: number[] = [];
+    let areasValeParaAsignar: AreaVale[] = [];
+    let deptosValeParaAsignar: number[] = [];
     const tipoSurtidoEfectivo = data.tipoSurtidoAlmacen ?? null;
     const tipoMaterialAuditorEfectivo = data.tipoMaterialAuditor ?? null;
 
@@ -395,14 +449,15 @@ export class UsersService {
       }
 
       if (data.lineaProduccionIds && data.lineaProduccionIds.length > 0) {
+        const uniqueLineas = Array.from(new Set(data.lineaProduccionIds));
         const lineas = await prisma.lineaProduccion.findMany({
           where: {
-            id: { in: data.lineaProduccionIds },
+            id: { in: uniqueLineas },
             estado: "ACTIVO",
           },
         });
 
-        if (lineas.length !== data.lineaProduccionIds.length) {
+        if (lineas.length !== uniqueLineas.length) {
           throw new BadRequestError(
             "Una o más líneas de producción seleccionadas no existen o están inactivas",
           );
@@ -423,7 +478,37 @@ export class UsersService {
           }
         }
 
-        lineasParaAsignar = data.lineaProduccionIds;
+        lineasParaAsignar = uniqueLineas;
+      }
+
+      if (data.areasVale && data.areasVale.length > 0) {
+        areasValeParaAsignar = Array.from(new Set(data.areasVale));
+      }
+
+      if (data.departamentosValeIds && data.departamentosValeIds.length > 0) {
+        const uniqueDeptoValeIds = Array.from(new Set(data.departamentosValeIds));
+        const deptosVale = await prisma.departamentoVale.findMany({
+          where: {
+            id: { in: uniqueDeptoValeIds },
+            estado: "ACTIVO",
+          },
+        });
+
+        if (deptosVale.length !== uniqueDeptoValeIds.length) {
+          throw new BadRequestError(
+            "Uno o más departamentos operativos de vales seleccionados no existen o están inactivos",
+          );
+        }
+
+        for (const deptoVale of deptosVale) {
+          if (deptoVale.departamentoId !== data.departamentoId) {
+            throw new BadRequestError(
+              `El departamento operativo '${deptoVale.nombre}' no pertenece al departamento organizacional '${departamento.nombre}'`,
+            );
+          }
+        }
+
+        deptosValeParaAsignar = uniqueDeptoValeIds;
       }
     } else if (rol.codigo === "AUDITOR") {
       if (!tipoMaterialAuditorEfectivo) {
@@ -432,9 +517,15 @@ export class UsersService {
       if (tipoSurtidoEfectivo) {
         throw new BadRequestError("El rol AUDITOR no debe tener segmentación de ALMACENISTA");
       }
+      if ((data.areasVale && data.areasVale.length > 0) || (data.departamentosValeIds && data.departamentosValeIds.length > 0)) {
+        throw new BadRequestError("El rol AUDITOR no debe tener autorizaciones de almacenista de vales");
+      }
     } else {
       if (tipoSurtidoEfectivo || tipoMaterialAuditorEfectivo) {
         throw new BadRequestError(`El rol ${rol.codigo} no debe tener segmentación operativa de ALMACENISTA ni AUDITOR`);
+      }
+      if ((data.areasVale && data.areasVale.length > 0) || (data.departamentosValeIds && data.departamentosValeIds.length > 0)) {
+        throw new BadRequestError(`El rol ${rol.codigo} no debe tener autorizaciones de almacenista de vales`);
       }
     }
 
@@ -452,12 +543,6 @@ export class UsersService {
         throw new BadRequestError(
           "Uno o más permisos especificados en las excepciones no existen o están inactivos",
         );
-      }
-
-      for (const exc of data.excepciones) {
-        if (exc.accion !== "CONCEDER") {
-          throw new BadRequestError("Solo se permiten excepciones positivas (CONCEDER)");
-        }
       }
 
       if (actorId) {
@@ -482,7 +567,7 @@ export class UsersService {
 
             if (!actorPermisos.includes(permObj.codigo as PermisoCodigo)) {
               throw new ForbiddenError(
-                `Operación denegada: No puede otorgar el permiso '${permObj.codigo}' como excepción porque usted no lo posee`,
+                `Operación denegada: No puede otorgar o modificar el permiso '${permObj.codigo}' como excepción porque usted no lo posee`,
               );
             }
           }
@@ -516,6 +601,28 @@ export class UsersService {
           data: lineasParaAsignar.map((lineaId) => ({
             usuarioId: nuevoUsuario.id,
             lineaProduccionId: lineaId,
+            estado: "ACTIVO",
+          })),
+        });
+      }
+
+      // Asignar áreas autorizadas de vales si aplica
+      if (areasValeParaAsignar.length > 0) {
+        await tx.usuarioAutorizacionValeArea.createMany({
+          data: areasValeParaAsignar.map((area) => ({
+            usuarioId: nuevoUsuario.id,
+            area,
+            estado: "ACTIVO",
+          })),
+        });
+      }
+
+      // Asignar departamentos operativos de vales autorizados si aplica
+      if (deptosValeParaAsignar.length > 0) {
+        await tx.usuarioAutorizacionValeDepartamento.createMany({
+          data: deptosValeParaAsignar.map((departamentoValeId) => ({
+            usuarioId: nuevoUsuario.id,
+            departamentoValeId,
             estado: "ACTIVO",
           })),
         });
@@ -639,8 +746,10 @@ export class UsersService {
       deptoEfectivo = deptoEncontrado;
     }
 
-    // Regla de asignación de líneas y segmentación operativa:
+    // Regla de asignación de líneas, autorizaciones de vales y segmentación operativa:
     let lineasParaAsignar: number[] | null = null;
+    let areasValeParaAsignar: AreaVale[] | null = null;
+    let deptosValeParaAsignar: number[] | null = null;
     let nuevoTipoSurtido = data.tipoSurtidoAlmacen !== undefined ? data.tipoSurtidoAlmacen : usuarioActual.tipoSurtidoAlmacen;
     let nuevoTipoAuditor = data.tipoMaterialAuditor !== undefined ? data.tipoMaterialAuditor : usuarioActual.tipoMaterialAuditor;
 
@@ -653,15 +762,16 @@ export class UsersService {
         nuevoTipoAuditor = null;
       }
       if (data.lineaProduccionIds !== undefined) {
-        if (data.lineaProduccionIds.length > 0) {
+        const uniqueLineas = Array.from(new Set(data.lineaProduccionIds));
+        if (uniqueLineas.length > 0) {
           const lineas = await prisma.lineaProduccion.findMany({
             where: {
-              id: { in: data.lineaProduccionIds },
+              id: { in: uniqueLineas },
               estado: "ACTIVO",
             },
           });
 
-          if (lineas.length !== data.lineaProduccionIds.length) {
+          if (lineas.length !== uniqueLineas.length) {
             throw new BadRequestError(
               "Una o más líneas de producción seleccionadas no existen o están inactivas",
             );
@@ -681,7 +791,38 @@ export class UsersService {
             }
           }
         }
-        lineasParaAsignar = data.lineaProduccionIds;
+        lineasParaAsignar = uniqueLineas;
+      }
+
+      if (data.areasVale !== undefined) {
+        areasValeParaAsignar = Array.from(new Set(data.areasVale));
+      }
+
+      if (data.departamentosValeIds !== undefined) {
+        const uniqueDeptoValeIds = Array.from(new Set(data.departamentosValeIds));
+        if (uniqueDeptoValeIds.length > 0) {
+          const deptosVale = await prisma.departamentoVale.findMany({
+            where: {
+              id: { in: uniqueDeptoValeIds },
+              estado: "ACTIVO",
+            },
+          });
+
+          if (deptosVale.length !== uniqueDeptoValeIds.length) {
+            throw new BadRequestError(
+              "Uno o más departamentos operativos de vales seleccionados no existen o están inactivos",
+            );
+          }
+
+          for (const deptoVale of deptosVale) {
+            if (deptoVale.departamentoId !== nuevoDepartamentoId) {
+              throw new BadRequestError(
+                `El departamento operativo '${deptoVale.nombre}' no pertenece al departamento organizacional '${deptoEfectivo.nombre}'`,
+              );
+            }
+          }
+        }
+        deptosValeParaAsignar = uniqueDeptoValeIds;
       }
     } else if (rolEfectivo.codigo === "AUDITOR") {
       if (!nuevoTipoAuditor) {
@@ -691,10 +832,14 @@ export class UsersService {
         nuevoTipoSurtido = null;
       }
       lineasParaAsignar = [];
+      areasValeParaAsignar = [];
+      deptosValeParaAsignar = [];
     } else {
       nuevoTipoSurtido = null;
       nuevoTipoAuditor = null;
       lineasParaAsignar = [];
+      areasValeParaAsignar = [];
+      deptosValeParaAsignar = [];
     }
 
     // Validar excepciones si se envían
@@ -709,12 +854,6 @@ export class UsersService {
 
       if (permisos.length !== permisoIds.length) {
         throw new BadRequestError("Uno o más permisos especificados no existen o están inactivos");
-      }
-
-      for (const exc of data.excepciones) {
-        if (exc.accion !== "CONCEDER") {
-          throw new BadRequestError("Solo se permiten excepciones positivas (CONCEDER)");
-        }
       }
 
       if (actorId) {
@@ -739,7 +878,7 @@ export class UsersService {
 
             if (!actorPermisos.includes(permObj.codigo as PermisoCodigo)) {
               throw new ForbiddenError(
-                `Operación denegada: No puede otorgar el permiso '${permObj.codigo}' como excepción porque usted no lo posee`,
+                `Operación denegada: No puede otorgar o modificar el permiso '${permObj.codigo}' como excepción porque usted no lo posee`,
               );
             }
           }
@@ -757,10 +896,13 @@ export class UsersService {
       nuevoUsuario = await this.generateUniqueUsername(data.nombre, id);
     }
 
-    // Detectar si hubo cambios en permisos para invalidar versión de permisos del usuario
+    // Detectar si hubo cambios en permisos o alcances operativos para invalidar versión de permisos del usuario
     const huboCambioPermisos =
       (data.rolId !== undefined && data.rolId !== usuarioActual.rolId) ||
-      data.excepciones !== undefined;
+      data.excepciones !== undefined ||
+      data.lineaProduccionIds !== undefined ||
+      data.areasVale !== undefined ||
+      data.departamentosValeIds !== undefined;
 
     // Ejecutar actualización en transacción
     await prisma.$transaction(async (tx) => {
@@ -791,6 +933,40 @@ export class UsersService {
             data: lineasParaAsignar.map((lineaId) => ({
               usuarioId: id,
               lineaProduccionId: lineaId,
+              estado: "ACTIVO",
+            })),
+          });
+        }
+      }
+
+      // Sincronizar áreas autorizadas de vales si se especificaron o si el rol cambió
+      if (areasValeParaAsignar !== null) {
+        await tx.usuarioAutorizacionValeArea.deleteMany({
+          where: { usuarioId: id },
+        });
+
+        if (areasValeParaAsignar.length > 0) {
+          await tx.usuarioAutorizacionValeArea.createMany({
+            data: areasValeParaAsignar.map((area) => ({
+              usuarioId: id,
+              area,
+              estado: "ACTIVO",
+            })),
+          });
+        }
+      }
+
+      // Sincronizar departamentos operativos de vales si se especificaron o si el rol cambió
+      if (deptosValeParaAsignar !== null) {
+        await tx.usuarioAutorizacionValeDepartamento.deleteMany({
+          where: { usuarioId: id },
+        });
+
+        if (deptosValeParaAsignar.length > 0) {
+          await tx.usuarioAutorizacionValeDepartamento.createMany({
+            data: deptosValeParaAsignar.map((departamentoValeId) => ({
+              usuarioId: id,
+              departamentoValeId,
               estado: "ACTIVO",
             })),
           });
@@ -1142,6 +1318,10 @@ export class UsersService {
           lineasProduccion: {
             where: { estado: "ACTIVO" },
             orderBy: { id: "asc" },
+          },
+          departamentosVale: {
+            where: { estado: "ACTIVO" },
+            orderBy: { nombre: "asc" },
           },
         },
         orderBy: { id: "asc" },

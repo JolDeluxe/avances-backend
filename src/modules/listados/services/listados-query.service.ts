@@ -167,7 +167,14 @@ export class ListadosQueryService {
         lineaProduccion: { select: { id: true, codigo: true, nombre: true, area: true, orden: true, estado: true } },
         departamento: { select: { id: true, codigo: true, nombre: true, estado: true } },
         creadoPorUsuario: { select: { id: true, usuario: true, nombre: true } },
-        frentes: true,
+        frentes: {
+          include: {
+            separadoPor: { select: { id: true, usuario: true, nombre: true } },
+            entregadoPor: { select: { id: true, usuario: true, nombre: true } },
+            validadoPor: { select: { id: true, usuario: true, nombre: true } },
+            descontadoPor: { select: { id: true, usuario: true, nombre: true } },
+          },
+        },
         historialEstados: {
           include: {
             cambiadoPorUsuario: { select: { id: true, usuario: true, nombre: true } },

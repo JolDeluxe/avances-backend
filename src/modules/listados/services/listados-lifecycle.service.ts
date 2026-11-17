@@ -244,7 +244,14 @@ export class ListadosLifecycleService {
         lineaProduccion: { select: { id: true, codigo: true, nombre: true } },
         departamento: { select: { id: true, codigo: true, nombre: true } },
         creadoPorUsuario: { select: { id: true, usuario: true, nombre: true } },
-        frentes: true,
+        frentes: {
+          include: {
+            separadoPor: { select: { id: true, usuario: true, nombre: true } },
+            entregadoPor: { select: { id: true, usuario: true, nombre: true } },
+            validadoPor: { select: { id: true, usuario: true, nombre: true } },
+            descontadoPor: { select: { id: true, usuario: true, nombre: true } },
+          },
+        },
       },
     });
 
@@ -384,7 +391,14 @@ export class ListadosLifecycleService {
     const cancelado = await prisma.listadoMaterial.findUniqueOrThrow({
       where: { id },
       include: {
-        frentes: true,
+        frentes: {
+          include: {
+            separadoPor: { select: { id: true, usuario: true, nombre: true } },
+            entregadoPor: { select: { id: true, usuario: true, nombre: true } },
+            validadoPor: { select: { id: true, usuario: true, nombre: true } },
+            descontadoPor: { select: { id: true, usuario: true, nombre: true } },
+          },
+        },
         lineaProduccion: { select: { id: true, codigo: true, nombre: true } },
         departamento: { select: { id: true, codigo: true, nombre: true } },
         creadoPorUsuario: true,

@@ -21,6 +21,17 @@ export const PERMISOS = {
   LISTADO_CANCELAR: "listado:cancelar",
   LISTADO_DESCONTAR: "listado:descontar",
 
+  // ── Vales de materia prima ────────────────────────────────────────────
+  VALE_VER: "vale:ver",
+  VALE_CREAR: "vale:crear",
+  VALE_EDITAR: "vale:editar",
+  VALE_SEPARAR: "vale:separar",
+  VALE_ENTREGAR: "vale:entregar",
+  VALE_CANCELAR: "vale:cancelar",
+  VALE_DESCONTAR: "vale:descontar",
+  VALE_RETROCEDER: "vale:retroceder",
+  VALE_RETROCEDER_DESCUENTO: "vale:retroceder_descuento",
+
   // ── Usuarios ──────────────────────────────────────────────────────────
   USUARIO_VER: "usuario:ver",
   USUARIO_CREAR: "usuario:crear",
@@ -103,6 +114,60 @@ export const PERMISOS_METADATA: Array<{
     modulo: "listados",
     nombre: "Descontar listados",
     descripcion: "Validar y descontar un listado entregado en ERP",
+  },
+  {
+    codigo: PERMISOS.VALE_VER,
+    modulo: "vales",
+    nombre: "Ver vales",
+    descripcion: "Consultar tableros, pendientes, detalle e historial de vales de materia prima",
+  },
+  {
+    codigo: PERMISOS.VALE_CREAR,
+    modulo: "vales",
+    nombre: "Crear vales",
+    descripcion: "Registrar nuevos vales de materia prima y dar de alta series o departamentos operativos",
+  },
+  {
+    codigo: PERMISOS.VALE_EDITAR,
+    modulo: "vales",
+    nombre: "Editar vales",
+    descripcion: "Modificar datos operativos de un vale en estado PENDIENTE",
+  },
+  {
+    codigo: PERMISOS.VALE_SEPARAR,
+    modulo: "vales",
+    nombre: "Separar vales",
+    descripcion: "Registrar separación de material de un vale en almacén",
+  },
+  {
+    codigo: PERMISOS.VALE_ENTREGAR,
+    modulo: "vales",
+    nombre: "Entregar vales",
+    descripcion: "Registrar entrega a producción de un vale separado",
+  },
+  {
+    codigo: PERMISOS.VALE_CANCELAR,
+    modulo: "vales",
+    nombre: "Cancelar vales",
+    descripcion: "Cancelar lógicamente un vale con justificación antes de su entrega",
+  },
+  {
+    codigo: PERMISOS.VALE_DESCONTAR,
+    modulo: "vales",
+    nombre: "Descontar vales",
+    descripcion: "Registrar confirmación de que el descuento externo del vale entregado ya fue realizado",
+  },
+  {
+    codigo: PERMISOS.VALE_RETROCEDER,
+    modulo: "vales",
+    nombre: "Retroceder estado operativo de vales",
+    descripcion: "Retroceder un paso el estado de un vale (ENTREGADO a SEPARADO o SEPARADO a PENDIENTE) con motivo",
+  },
+  {
+    codigo: PERMISOS.VALE_RETROCEDER_DESCUENTO,
+    modulo: "vales",
+    nombre: "Revertir descuento de vales",
+    descripcion: "Revertir un paso el cierre de auditoría de un vale (DESCONTADO a ENTREGADO) con motivo",
   },
   {
     codigo: PERMISOS.USUARIO_VER,

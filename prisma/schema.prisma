@@ -76,6 +76,37 @@ enum EstadoFrenteMaterial {
   @@map("estado_frente_material")
 }
 
+enum AreaVale {
+  BOTA
+  ACCESORIOS
+  OTRO
+
+  @@map("area_vale")
+}
+
+enum EstadoVale {
+  PENDIENTE
+  SEPARADO
+  ENTREGADO
+  DESCONTADO
+  CANCELADO
+
+  @@map("estado_vale")
+}
+
+enum AccionHistorialVale {
+  CREACION
+  EDICION
+  SEPARACION
+  ENTREGA
+  SEPARACION_Y_ENTREGA
+  DESCUENTO
+  RETROCESO
+  CANCELACION
+
+  @@map("accion_historial_vale")
+}
+
 // =========================================================================
 // 2. ORGANIZACIÓN Y LÍNEAS DE PRODUCCIÓN
 // =========================================================================
@@ -88,9 +119,12 @@ model Departamento {
   fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
   fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
 
-  usuarios         Usuario[]
-  lineasProduccion LineaProduccion[]
-  listadosMaterial ListadoMaterial[]
+  usuarios          Usuario[]
+  lineasProduccion  LineaProduccion[]
+  listadosMaterial  ListadoMaterial[]
+  seriesVale        SerieVale[]
+  departamentosVale DepartamentoVale[]
+  valesMaterial     ValeMaterial[]
 
   @@index([estado])
   @@map("departamentos")
@@ -200,9 +234,21 @@ model Usuario {
   frentesDescontados      ListadoSurtidoFrente[]   @relation("frente_descontado")
   historialFrentesCambiados HistorialEstadoFrente[] @relation("HistorialFrenteCambiadoPor")
 
-  // Trazabilidad de operaciones
+  // Trazabilidad de operaciones (Listados)
   listadosCreados    ListadoMaterial[]        @relation("ListadoCreadoPor")
   cambiosEstado      HistorialEstadoListado[] @relation("EstadoCambiadoPor")
+
+  // Autorizaciones y trazabilidad de Vales
+  autorizacionesValeArea         UsuarioAutorizacionValeArea[]
+  autorizacionesValeDepartamento UsuarioAutorizacionValeDepartamento[]
+  valesCreados                   ValeMaterial[]                        @relation("ValeCreadoPor")
+  valesSeparados                 ValeMaterial[]                        @relation("ValeSeparadoPor")
+  valesEntregados                ValeMaterial[]                        @relation("ValeEntregadoPor")
+  valesDescontados               ValeMaterial[]                        @relation("ValeDescontadoPor")
+  valesRevertidos                ValeMaterial[]                        @relation("ValeRevertidoPor")
+  valesCancelados                ValeMaterial[]                        @relation("ValeCanceladoPor")
+  historialValesCambiados        HistorialEstadoVale[]                 @relation("HistorialValeUsuario")
+
   registrosAuditoria RegistroAuditoria[]      @relation("AuditoriaUsuario")
   sesiones           Sesion[]
 
@@ -392,3 +438,159 @@ model Sesion {
   @@index([fechaExpiracion])
   @@map("sesiones")
 }
+
+// =========================================================================
+// 7. MÓDULO DE VALES DE MATERIA PRIMA (CATÁLOGOS, ALCANCES Y TRANSACCIONAL)
+// =========================================================================
+
+model SerieVale {
+  id                 Int            @id @default(autoincrement())
+  departamentoId     Int            @map("departamento_id")
+  codigo             String         @db.VarChar(20)
+  esSistema          Boolean        @default(false) @map("es_sistema")
+  estado             EstadoRegistro @default(ACTIVO)
+  creadoPorId        Int?           @map("creado_por_id")
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  departamento Departamento   @relation(fields: [departamentoId], references: [id], onDelete: Restrict)
+  vales        ValeMaterial[]
+
+  @@unique([departamentoId, codigo], name: "unique_serie_vale_depto_codigo")
+  @@unique([id, departamentoId], name: "unique_serie_vale_depto")
+  @@index([departamentoId, estado])
+  @@map("series_vale")
+}
+
+model DepartamentoVale {
+  id                    Int            @id @default(autoincrement())
+  departamentoId        Int            @map("departamento_id")
+  codigo                String         @db.VarChar(60)
+  nombre                String         @db.VarChar(100)
+  areaFija              AreaVale?      @map("area_fija")
+  requiereSeleccionArea Boolean        @default(false) @map("requiere_seleccion_area")
+  esSistema             Boolean        @default(false) @map("es_sistema")
+  estado                EstadoRegistro @default(ACTIVO)
+  creadoPorId           Int?           @map("creado_por_id")
+  fechaCreacion         DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion    DateTime       @updatedAt @map("fecha_actualizacion")
+
+  departamento        Departamento                          @relation(fields: [departamentoId], references: [id], onDelete: Restrict)
+  vales               ValeMaterial[]
+  usuariosAutorizados UsuarioAutorizacionValeDepartamento[]
+
+  @@unique([departamentoId, codigo], name: "unique_depto_vale_depto_codigo")
+  @@unique([id, departamentoId], name: "unique_depto_vale_depto")
+  @@index([departamentoId, estado])
+  @@index([areaFija])
+  @@map("departamentos_vale")
+}
+
+model ValeMaterial {
+  id                 Int        @id @default(autoincrement())
+  departamentoId     Int        @map("departamento_id")
+  serieId            Int        @map("serie_id")
+  departamentoValeId Int        @map("departamento_vale_id")
+
+  folio              String     @db.VarChar(30)
+  area               AreaVale
+
+  fechaSolicitud     DateTime   @map("fecha_solicitud")
+  tieneHoraSolicitud Boolean    @default(false) @map("tiene_hora_solicitud")
+  estado             EstadoVale @default(PENDIENTE)
+
+  creadoPorId        Int        @map("creado_por_id")
+
+  separadoPorId      Int?       @map("separado_por_id")
+  fechaSeparado      DateTime?  @map("fecha_separado")
+
+  entregadoPorId     Int?       @map("entregado_por_id")
+  fechaEntregado     DateTime?  @map("fecha_entregado")
+
+  descontadoPorId    Int?       @map("descontado_por_id")
+  fechaDescontado    DateTime?  @map("fecha_descontado")
+
+  revertidoPorId     Int?       @map("revertido_por_id")
+  fechaRevertido     DateTime?  @map("fecha_revertido")
+  motivoReversion    String?    @map("motivo_reversion") @db.VarChar(500)
+
+  canceladoPorId     Int?       @map("cancelado_por_id")
+  fechaCancelacion   DateTime?  @map("fecha_cancelacion")
+  motivoCancelacion  String?    @map("motivo_cancelacion") @db.VarChar(500)
+
+  fechaCreacion      DateTime   @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime   @updatedAt @map("fecha_actualizacion")
+
+  // Relaciones con integridad estricta y FK compuesta por departamento organizacional
+  departamento     Departamento          @relation(fields: [departamentoId], references: [id], onDelete: Restrict)
+  serie            SerieVale             @relation(fields: [serieId, departamentoId], references: [id, departamentoId], onDelete: Restrict)
+  departamentoVale DepartamentoVale      @relation(fields: [departamentoValeId, departamentoId], references: [id, departamentoId], onDelete: Restrict)
+  creadoPor        Usuario               @relation("ValeCreadoPor", fields: [creadoPorId], references: [id], onDelete: Restrict)
+  separadoPor      Usuario?              @relation("ValeSeparadoPor", fields: [separadoPorId], references: [id], onDelete: Restrict)
+  entregadoPor     Usuario?              @relation("ValeEntregadoPor", fields: [entregadoPorId], references: [id], onDelete: Restrict)
+  descontadoPor    Usuario?              @relation("ValeDescontadoPor", fields: [descontadoPorId], references: [id], onDelete: Restrict)
+  revertidoPor     Usuario?              @relation("ValeRevertidoPor", fields: [revertidoPorId], references: [id], onDelete: Restrict)
+  canceladoPor     Usuario?              @relation("ValeCanceladoPor", fields: [canceladoPorId], references: [id], onDelete: Restrict)
+  historialEstados HistorialEstadoVale[]
+
+  // Sin restricción unique sobre serieId + folio (duplicados permitidos)
+  @@index([departamentoId, estado, area], name: "idx_vales_depto_estado_area")
+  @@index([departamentoId, departamentoValeId, estado], name: "idx_vales_depto_deptovale_estado")
+  @@index([departamentoId, serieId, folio], name: "idx_vales_depto_serie_folio")
+  @@index([folio])
+  @@index([fechaSolicitud])
+  @@index([creadoPorId])
+  @@map("vales_material")
+}
+
+// Bitácora append-only: onDelete: Restrict garantiza que jamás pueda borrarse físicamente un Vale ni su Historial
+model HistorialEstadoVale {
+  id             Int                 @id @default(autoincrement())
+  valeId         Int                 @map("vale_id")
+  accion         AccionHistorialVale
+  estadoAnterior EstadoVale?         @map("estado_anterior")
+  estadoNuevo    EstadoVale          @map("estado_nuevo")
+  usuarioId      Int                 @map("usuario_id")
+  motivo         String?             @db.VarChar(500)
+  cambios        Json?
+  fechaCambio    DateTime            @default(now()) @map("fecha_cambio")
+
+  vale    ValeMaterial @relation(fields: [valeId], references: [id], onDelete: Restrict)
+  usuario Usuario      @relation("HistorialValeUsuario", fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([valeId, fechaCambio], name: "idx_historial_vale_fecha")
+  @@index([usuarioId])
+  @@index([fechaCambio])
+  @@map("historial_estados_vale")
+}
+
+model UsuarioAutorizacionValeArea {
+  usuarioId          Int            @map("usuario_id")
+  area               AreaVale
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@id([usuarioId, area])
+  @@index([estado])
+  @@map("usuarios_autorizaciones_vale_area")
+}
+
+model UsuarioAutorizacionValeDepartamento {
+  usuarioId          Int            @map("usuario_id")
+  departamentoValeId Int            @map("departamento_vale_id")
+  estado             EstadoRegistro @default(ACTIVO)
+  fechaCreacion      DateTime       @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime       @updatedAt @map("fecha_actualizacion")
+
+  usuario          Usuario          @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  departamentoVale DepartamentoVale @relation(fields: [departamentoValeId], references: [id], onDelete: Restrict)
+
+  @@id([usuarioId, departamentoValeId])
+  @@index([departamentoValeId])
+  @@index([estado])
+  @@map("usuarios_autorizaciones_vale_departamento")
+}
+

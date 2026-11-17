@@ -1,3 +1,4 @@
+import type { AreaVale } from "@prisma/client";
 import { prisma } from "../../../config/database";
 import { ForbiddenError } from "../../../utils/errors";
 
@@ -5,6 +6,8 @@ export interface UserScope {
   usuarioId: number;
   departamentoId: number;
   lineaProduccionIds: number[];
+  areasVale: AreaVale[];
+  departamentosValeIds: number[];
   esGlobal: boolean; // SUPER_ADMIN
   rolCodigo: string;
   tipoSurtidoAlmacen: string | null;
@@ -48,6 +51,17 @@ export class ScopeService {
           where: { estado: "ACTIVO" },
           select: { lineaProduccionId: true },
         },
+        autorizacionesValeArea: {
+          where: { estado: "ACTIVO" },
+          select: { area: true },
+        },
+        autorizacionesValeDepartamento: {
+          where: {
+            estado: "ACTIVO",
+            departamentoVale: { estado: "ACTIVO" },
+          },
+          select: { departamentoValeId: true },
+        },
       },
     });
 
@@ -62,6 +76,8 @@ export class ScopeService {
         usuarioId: usuario.id,
         departamentoId: usuario.departamentoId,
         lineaProduccionIds: [],
+        areasVale: [],
+        departamentosValeIds: [],
         esGlobal: true,
         rolCodigo: usuario.rol.codigo,
         tipoSurtidoAlmacen: usuario.tipoSurtidoAlmacen,
@@ -70,11 +86,15 @@ export class ScopeService {
     }
 
     const lineaProduccionIds = usuario.lineasAsignadas.map((l) => l.lineaProduccionId);
+    const areasVale = usuario.autorizacionesValeArea.map((a) => a.area);
+    const departamentosValeIds = usuario.autorizacionesValeDepartamento.map((d) => d.departamentoValeId);
 
     return {
       usuarioId: usuario.id,
       departamentoId: usuario.departamentoId,
       lineaProduccionIds,
+      areasVale,
+      departamentosValeIds,
       esGlobal: false,
       rolCodigo: usuario.rol.codigo,
       tipoSurtidoAlmacen: usuario.tipoSurtidoAlmacen,
