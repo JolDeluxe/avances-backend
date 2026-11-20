@@ -1,6 +1,6 @@
 import { prisma } from "../../../config/database";
 import { EstadoListado, EstadoFrenteMaterial, TipoFrenteMaterial } from "@prisma/client";
-import { scopeService } from "../../auth/services/scope.service";
+import { scopeService, type UserScope } from "../../auth/services/scope.service";
 import { listadosEventPublisher, type TipoEventoListado } from "../events";
 import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from "../../../utils/errors";
 
@@ -61,6 +61,101 @@ const TRANSICIONES_VALIDAS: Record<string, TransicionConfig> = {
 };
 
 export class ListadosLifecycleService {
+  /**
+   * Valida el alcance operativo sobre un frente aplicando estrictamente DENY-BY-DEFAULT.
+   * Reglas:
+   * 1. SUPER_ADMIN: conserva exclusivamente su bypass global existente (esGlobal: true).
+   * 2. ALMACEN: requiere tipoSurtidoAlmacen explícito no vacío que contenga "TODOS" o el tipoFrente.
+   * 3. AUDITORIA: requiere tipoMaterialAuditor explícito no vacío que contenga "TODOS" o el tipoFrente.
+   * 4. RETROCESO: requiere que el tipoFrente esté autorizado en al menos uno de los alcances operativos del usuario.
+   * 5. Cualquier valor null, vacío o no coincidente es denegado de forma inmediata con ForbiddenError.
+   */
+  private validarAlcanceFrente(
+    scope: UserScope,
+    tipoFrente: TipoFrenteMaterial,
+    operacion: "ALMACEN" | "AUDITORIA" | "RETROCESO",
+    estadoOrigen?: EstadoFrenteMaterial,
+  ): void {
+    if (scope.esGlobal) {
+      return; // SUPER_ADMIN conserva exclusivamente su bypass global
+    }
+
+    if (operacion === "ALMACEN") {
+      if (!scope.tipoSurtidoAlmacen || !scope.tipoSurtidoAlmacen.trim()) {
+        throw new ForbiddenError(
+          `No cuenta con alcance operativo de surtido de almacén para operar el frente ${tipoFrente}`,
+        );
+      }
+      const permitidos = scope.tipoSurtidoAlmacen
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+      if (!permitidos.includes("TODOS") && !permitidos.includes(tipoFrente)) {
+        throw new ForbiddenError(
+          `Su alcance de almacén no le autoriza operar el frente ${tipoFrente}. Frentes autorizados: ${permitidos.join(", ")}`,
+        );
+      }
+      return;
+    }
+
+    if (operacion === "AUDITORIA") {
+      if (!scope.tipoMaterialAuditor || !scope.tipoMaterialAuditor.trim()) {
+        throw new ForbiddenError(
+          `No cuenta con alcance operativo de auditoría para descontar el frente ${tipoFrente}`,
+        );
+      }
+      const permitidosAud = scope.tipoMaterialAuditor
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+      if (!permitidosAud.includes("TODOS") && !permitidosAud.includes(tipoFrente)) {
+        throw new ForbiddenError(
+          `Su alcance de auditoría no le autoriza descontar el frente ${tipoFrente}. Frentes autorizados: ${permitidosAud.join(", ")}`,
+        );
+      }
+      return;
+    }
+
+    if (operacion === "RETROCESO") {
+      const frentesAlm = scope.tipoSurtidoAlmacen
+        ? scope.tipoSurtidoAlmacen.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+        : [];
+      const frentesAud = scope.tipoMaterialAuditor
+        ? scope.tipoMaterialAuditor.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+        : [];
+
+      if (frentesAlm.length === 0 && frentesAud.length === 0) {
+        throw new ForbiddenError(
+          `No cuenta con alcance operativo asignado para retroceder el frente ${tipoFrente}`,
+        );
+      }
+
+      // Regla de Negocio: Si el estado de origen es SEPARADO, es una fase interna de Almacén.
+      // Requiere estrictamente alcance en tipoSurtidoAlmacen (un auditor no debe alterar la preparación interna de almacén).
+      if (estadoOrigen === "SEPARADO") {
+        const autorizadoAlm = frentesAlm.includes("TODOS") || frentesAlm.includes(tipoFrente);
+        if (!autorizadoAlm) {
+          throw new ForbiddenError(
+            `Su alcance de auditoría no le autoriza retroceder un material en preparación de almacén (SEPARADO). Se requiere alcance de surtido de almacén para el frente ${tipoFrente}`,
+          );
+        }
+        return;
+      }
+
+      // Para retrocesos desde ENTREGADO (hacia PENDIENTE o hacia SEPARADO), el material está en la frontera Almacén-Auditoría:
+      // Se autoriza si el frente está cubierto en Almacén O en Auditoría.
+      const autorizadoAlm = frentesAlm.includes("TODOS") || frentesAlm.includes(tipoFrente);
+      const autorizadoAud = frentesAud.includes("TODOS") || frentesAud.includes(tipoFrente);
+
+      if (!autorizadoAlm && !autorizadoAud) {
+        throw new ForbiddenError(
+          `Su alcance operativo no le autoriza retroceder el frente ${tipoFrente}`,
+        );
+      }
+      return;
+    }
+  }
+
   async transicionarFrente(
     listadoId: number,
     tipoFrente: TipoFrenteMaterial,
@@ -69,23 +164,6 @@ export class ListadosLifecycleService {
     motivo?: string,
   ) {
     const scope = await scopeService.resolveUserScope(usuarioId);
-    
-    // Validar scope del usuario
-    if (!scope.esGlobal) {
-      if (scope.tipoSurtidoAlmacen) {
-        const permitidos = scope.tipoSurtidoAlmacen.split(",").map((s) => s.trim().toUpperCase());
-        if (!permitidos.includes("TODOS") && !permitidos.includes(tipoFrente)) {
-          throw new BadRequestError(`Su rol como ALMACENISTA solo permite operar frentes: ${permitidos.join(", ")}`);
-        }
-      }
-      if (scope.tipoMaterialAuditor) {
-        const permitidosAud = scope.tipoMaterialAuditor.split(",").map((s) => s.trim().toUpperCase());
-        if (!permitidosAud.includes("TODOS") && !permitidosAud.includes(tipoFrente)) {
-          throw new BadRequestError(`Su rol como AUDITOR solo permite operar frentes: ${permitidosAud.join(", ")}`);
-        }
-      }
-    }
-
     const scopeWhere = scopeService.buildScopeWhere(scope);
 
     await prisma.$transaction(async (tx) => {
@@ -117,6 +195,18 @@ export class ListadosLifecycleService {
       if (!frente) {
         throw new BadRequestError(`El frente ${tipoFrente} no es válido para el listado '${listado.numeroListado}'`);
       }
+
+      // Validar alcance operativo del usuario (Deny-by-default estricto)
+      let operacion: "ALMACEN" | "AUDITORIA" | "RETROCESO";
+      if (estadoDestino === "DESCONTADO") {
+        operacion = "AUDITORIA";
+      } else if (estadoDestino === "PENDIENTE" || (frente.estado === "ENTREGADO" && estadoDestino === "SEPARADO")) {
+        operacion = "RETROCESO";
+      } else {
+        operacion = "ALMACEN";
+      }
+
+      this.validarAlcanceFrente(scope, tipoFrente, operacion, frente.estado);
 
       if (tipoFrente === "BOLSAS" && !listado.lineaProduccion.permiteBolsas && listado.lineaProduccion.codigo !== "BOLSAS") {
         throw new BadRequestError(`El frente BOLSAS no está habilitado para la línea '${listado.lineaProduccion.nombre}'`);
@@ -313,6 +403,8 @@ export class ListadosLifecycleService {
     if (frente.estado === "PENDIENTE") {
       throw new BadRequestError(`El frente ${tipoFrente} ya se encuentra en Materiales Pendientes`);
     }
+
+    this.validarAlcanceFrente(scope, tipoFrente, "RETROCESO", frente.estado);
 
     // Regla de Negocio: Retroceder siempre manda directamente a PENDIENTE (Materiales Pendientes)
     const destino: EstadoFrenteMaterial = "PENDIENTE";

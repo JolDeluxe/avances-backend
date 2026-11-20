@@ -223,14 +223,6 @@ export class ValesQueryService {
       throw new NotFoundError(`Vale con ID ${id} no encontrado`);
     }
 
-    // Validar alcance operativo acumulativo antes de exponer el detalle y su historial
-    valesScopeService.assertCanOperateVale(scope, {
-      departamentoId: vale.departamentoId,
-      area: vale.area,
-      departamentoValeId: vale.departamentoValeId,
-      departamentoValeNombre: vale.departamentoVale.nombre,
-    });
-
     return vale;
   }
 }

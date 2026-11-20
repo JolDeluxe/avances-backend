@@ -124,23 +124,19 @@ export class ValesScopeService {
       const tieneAreas = scope.areasVale.length > 0;
       const tieneDeptos = scope.departamentosValeIds.length > 0;
 
-      if (!tieneAreas && !tieneDeptos) {
-        // Deny-by-default: ningún vale visible ni contabilizable
-        where.id = -1;
-        return where;
-      }
+      if (tieneAreas || tieneDeptos) {
+        const condicionesAcumulativas: Prisma.ValeMaterialWhereInput[] = [];
+        if (tieneAreas) {
+          condicionesAcumulativas.push({ area: { in: scope.areasVale } });
+        }
+        if (tieneDeptos) {
+          condicionesAcumulativas.push({
+            departamentoValeId: { in: scope.departamentosValeIds },
+          });
+        }
 
-      const condicionesAcumulativas: Prisma.ValeMaterialWhereInput[] = [];
-      if (tieneAreas) {
-        condicionesAcumulativas.push({ area: { in: scope.areasVale } });
+        where.OR = condicionesAcumulativas;
       }
-      if (tieneDeptos) {
-        condicionesAcumulativas.push({
-          departamentoValeId: { in: scope.departamentosValeIds },
-        });
-      }
-
-      where.OR = condicionesAcumulativas;
     }
 
     return where;
@@ -168,9 +164,14 @@ export class ValesScopeService {
       return evento;
     }
 
-    // Deny-by-default si no tiene ni áreas ni departamentos autorizados
+    // Si tiene áreas o departamentos asignados, filtrar por ellos; si no tiene asignación específica,
+    // se entrega el evento departamental en modo consulta (sin loteItems)
     if (scope.areasVale.length === 0 && scope.departamentosValeIds.length === 0) {
-      return null;
+      if (evento.loteItems) {
+        const { loteItems: _omit, ...cleanEvent } = evento;
+        return cleanEvent;
+      }
+      return evento;
     }
 
     if (evento.tipo === "VALES_LOTE_OPERADO") {
