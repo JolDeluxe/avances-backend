@@ -63,13 +63,14 @@ export class UsersService {
     }
 
     // Prioridad canónica de orden por roles:
-    // 1. SUPER_ADMIN, 2. ADMIN, 3. REGISTRADOR, 4. AUDITOR, 5. ALMACENISTA
+    // 1. SUPER_ADMIN, 2. ADMIN, 3. REGISTRADOR, 4. AUDITOR, 5. ALMACENISTA, 6. VISUALIZADOR
     const ROLE_PRIORITY: Record<string, number> = {
       SUPER_ADMIN: 1,
       ADMIN: 2,
       REGISTRADOR: 3,
       AUDITOR: 4,
       ALMACENISTA: 5,
+      VISUALIZADOR: 6,
     };
 
     const [total, usuarios, usuariosSummary] = await Promise.all([
@@ -135,6 +136,7 @@ export class UsersService {
       ALMACENISTA: 0,
       AUDITOR: 0,
       REGISTRADOR: 0,
+      VISUALIZADOR: 0,
     };
 
     for (const u of usuariosSummary) {
@@ -147,6 +149,8 @@ export class UsersService {
         statsPorRol.AUDITOR = (statsPorRol.AUDITOR ?? 0) + 1;
       } else if (cod === "REGISTRADOR") {
         statsPorRol.REGISTRADOR = (statsPorRol.REGISTRADOR ?? 0) + 1;
+      } else if (cod === "VISUALIZADOR") {
+        statsPorRol.VISUALIZADOR = (statsPorRol.VISUALIZADOR ?? 0) + 1;
       }
     }
 
@@ -1344,6 +1348,7 @@ export class UsersService {
       REGISTRADOR: 3,
       AUDITOR: 4,
       ALMACENISTA: 5,
+      VISUALIZADOR: 6,
     };
 
     const rolesFormateados = roles

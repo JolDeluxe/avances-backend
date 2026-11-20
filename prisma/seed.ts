@@ -324,6 +324,19 @@ async function main() {
         PERMISOS.VALE_CANCELAR,
       ],
     },
+    {
+      codigo: "VISUALIZADOR",
+      nombre: "Visualizador",
+      permisosDefault: [
+        PERMISOS.DEPARTAMENTO_VER,
+        PERMISOS.ROL_VER,
+        PERMISOS.PERMISO_VER,
+        PERMISOS.USUARIO_VER,
+        PERMISOS.LISTADO_VER,
+        PERMISOS.VALE_VER,
+        PERMISOS.REGISTRO_SISTEMA_VER,
+      ],
+    },
   ];
 
   const rolesRegistrados: Record<string, { id: number; codigo: string }> = {};
@@ -399,6 +412,31 @@ async function main() {
     },
   });
   console.log(`   -> Super Admin creado: "${adminUsuario}" (Clave configurada)`);
+
+  const rolVisualizador = rolesRegistrados["VISUALIZADOR"];
+  if (rolVisualizador) {
+    await prisma.usuario.upsert({
+      where: { usuario: "visualizador" },
+      update: {
+        nombre: "Visualizador",
+        passwordHash: adminPasswordHash,
+        passwordEncrypted: adminPasswordEncrypted,
+        rolId: rolVisualizador.id,
+        departamentoId: deptoMateriaPrima.id,
+        estado: "ACTIVO",
+      },
+      create: {
+        usuario: "visualizador",
+        nombre: "Visualizador",
+        passwordHash: adminPasswordHash,
+        passwordEncrypted: adminPasswordEncrypted,
+        rolId: rolVisualizador.id,
+        departamentoId: deptoMateriaPrima.id,
+        estado: "ACTIVO",
+      },
+    });
+    console.log(`   -> Usuario Visualizador creado: "visualizador"`);
+  }
 
   // 6. Registro de auditoría
   await prisma.registroAuditoria.create({
