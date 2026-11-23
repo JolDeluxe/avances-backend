@@ -98,6 +98,9 @@ export const listListadosQuerySchema = z
         z.array(z.enum(["PENDIENTE", "EN_PROCESO", "SEPARADO", "ENTREGADO_A_PRODUCCION", "CANCELADO", "DESCONTADO"])),
       ])
       .optional(),
+    excludeEstado: z
+      .enum(["PENDIENTE", "EN_PROCESO", "SEPARADO", "ENTREGADO_A_PRODUCCION", "CANCELADO", "DESCONTADO"])
+      .optional(),
     lineaProduccionId: z.coerce.number().int().positive("lineaProduccionId debe ser un número entero positivo").optional(),
     departamentoId: z.coerce.number().int().positive("departamentoId debe ser un número entero positivo").optional(),
     numeroListado: z.string().trim().min(1, "numeroListado no puede estar vacío").optional(),

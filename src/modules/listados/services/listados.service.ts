@@ -170,25 +170,18 @@ export class ListadosService {
       }
 
       // Validar si puede ser editado:
-      // Para usuarios normales, solo en PENDIENTE.
-      // Para ADMIN / SUPER_ADMIN, se permite editar salvo que ya esté CANCELADO, DESCONTADO o con todos los frentes completos en ENTREGADO/DESCONTADO.
+      // Se permite editar en cualquier estado activo (PENDIENTE, SEPARADO, ENTREGADO, EN_PROCESO)
+      // para usuarios autorizados (REGISTRADOR, ADMIN, SUPER_ADMIN).
+      // Solo se rechaza si el listado ya fue cancelado o sus materiales ya fueron descontados en el sistema.
       const frentes = await tx.listadoSurtidoFrente.findMany({ where: { listadoMaterialId: id } });
       const todosDescontados = frentes.length > 0 && frentes.every(
         (f) => f.estado === "DESCONTADO"
       );
 
-      if (scope.rolCodigo === "SUPER_ADMIN" || scope.rolCodigo === "ADMIN") {
-        if (listado.estado === "CANCELADO" || listado.estado === "DESCONTADO" || todosDescontados) {
-          throw new ConflictError(
-            `No se pueden modificar los datos de un listado ${listado.estado === "CANCELADO" ? "cancelado" : "cuyos materiales ya fueron descontados en el sistema en su totalidad"}.`
-          );
-        }
-      } else {
-        if (listado.estado !== "PENDIENTE") {
-          throw new ConflictError(
-            `No se pueden modificar los datos de un listado en estado ${listado.estado}. Para corregirlo, debe retroceder primero a PENDIENTE.`,
-          );
-        }
+      if (listado.estado === "CANCELADO" || listado.estado === "DESCONTADO" || todosDescontados) {
+        throw new ConflictError(
+          `No se pueden modificar los datos de un listado ${listado.estado === "CANCELADO" ? "cancelado" : "cuyos materiales ya fueron descontados en el sistema"}. Para corregirlo, debe retroceder primero el descuento a PENDIENTE.`
+        );
       }
 
       let nuevaLineaId = listado.lineaProduccionId;

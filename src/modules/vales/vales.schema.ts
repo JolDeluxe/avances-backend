@@ -248,6 +248,7 @@ export const filterValesSchema = z.object({
         .filter(Boolean),
     )
     .optional(),
+  excludeEstado: z.enum(["PENDIENTE", "SEPARADO", "ENTREGADO", "DESCONTADO", "CANCELADO"]).optional(),
   fechaDesde: z
     .string()
     .refine((val) => !Number.isNaN(Date.parse(val)), { message: "fechaDesde inválida" })

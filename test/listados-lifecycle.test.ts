@@ -447,20 +447,32 @@ describe("Ciclo de Vida y Máquina de Estados de Listados (V3 Corregido)", () =>
       expect(res.status).toBe(409);
     });
 
-    it("C. Rechaza edición si el listado ya avanzó a SEPARADO (debe retroceder primero)", async () => {
+    it("C. Permite edición si el listado ya avanzó a SEPARADO/EN_PROCESO, y rechaza si avanzó a DESCONTADO", async () => {
       const l = await requestApi("POST", "", tokenAdminMP, {
-        numeroListado: uniqueNumero("BLOCKED-EDIT"),
+        numeroListado: uniqueNumero("ACTIVE-EDIT"),
         fechaRequerida: FECHA_REQUERIDA,
         lineaProduccionId: idLineaMP1,
       });
       const id = l.json.data.id;
       await requestApi("POST", `/${id}/separar`, tokenAlmacenistaMP, { tipoFrente: "DIRECTOS" });
 
+      const nuevoNumero = uniqueNumero("EDITED-OK");
       const res = await requestApi("PATCH", `/${id}`, tokenAdminMP, {
-        numeroListado: uniqueNumero("FAIL"),
+        numeroListado: nuevoNumero,
       });
-      expect(res.status).toBe(409);
-      expect(res.json.message).toContain("debe retroceder primero a PENDIENTE");
+      expect(res.status).toBe(200);
+      expect(res.json.data.numeroListado).toBe(nuevoNumero);
+
+      // Entregar y descontar todos los frentes
+      await requestApi("POST", `/${id}/entregar`, tokenAlmacenistaMP, { tipoFrente: "DIRECTOS" });
+      await requestApi("POST", `/${id}/descontar`, tokenAdminMP, { tipoFrente: "DIRECTOS" });
+
+      // Ahora que está descontado, intentar modificar debe ser rechazado
+      const resDescontado = await requestApi("PATCH", `/${id}`, tokenAdminMP, {
+        numeroListado: uniqueNumero("FAIL-DESCONTADO"),
+      });
+      expect(resDescontado.status).toBe(409);
+      expect(resDescontado.json.message).toContain("debe retroceder primero el descuento");
     });
 
     it("D. Rechaza si el payload intenta enviar el campo 'estado' (400 Bad Request)", async () => {

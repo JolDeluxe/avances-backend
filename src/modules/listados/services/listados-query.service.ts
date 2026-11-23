@@ -28,7 +28,7 @@ export class ListadosQueryService {
       departamento: { estado: "ACTIVO" },
       lineaProduccion: { estado: "ACTIVO" },
       ...(scope.esGlobal && filtros.departamentoId ? { departamentoId: filtros.departamentoId } : {}),
-      ...(filtros.estado && {
+      ...(filtros.estado ? {
         estado: (() => {
           if (Array.isArray(filtros.estado)) {
             return { in: filtros.estado as Prisma.EnumEstadoListadoFilter['in'] };
@@ -39,7 +39,9 @@ export class ListadosQueryService {
           }
           return filtros.estado as Prisma.EnumEstadoListadoFilter['equals'];
         })(),
-      }),
+      } : (filtros.excludeEstado ? {
+        estado: { not: filtros.excludeEstado as any },
+      } : {})),
       ...(filtros.numeroListado && {
         numeroListado: { contains: filtros.numeroListado },
       }),
@@ -90,10 +92,9 @@ export class ListadosQueryService {
         };
       } else if (scope.rolCodigo === "REGISTRADOR") {
         // Regla de Negocio REGISTRADOR:
-        // Ve TODOS los listados en estado PENDIENTE de su departamento (registrados por él o por cualquier otro registrador).
-        // Así si hay 10 registradores en el departamento, todos ven el trabajo de todos.
+        // Ve los listados de su departamento (registrados por él o por cualquier otro registrador de su departamento).
+        // En historial ve todos los estados; en vistas operativas se respeta el filtro de estado correspondiente.
         where.departamentoId = scope.departamentoId;
-        where.estado = "PENDIENTE";
       }
     }
 

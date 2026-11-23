@@ -22,7 +22,7 @@ import { valesQueryService } from "./vales-query.service";
 
 const RETROCESO_PASO_INMEDIATO: Partial<Record<EstadoVale, EstadoVale>> = {
   DESCONTADO: "ENTREGADO",
-  ENTREGADO: "SEPARADO",
+  ENTREGADO: "PENDIENTE",
   SEPARADO: "PENDIENTE",
 };
 
@@ -413,7 +413,7 @@ export class ValesLifecycleService {
 
     if (input.estadoDestino && input.estadoDestino !== estadoDestinoPermitido) {
       throw new BadRequestError(
-        `El retroceso es estrictamente de un solo paso inmediato: desde ${estadoAnterior} solo se puede retroceder a ${estadoDestinoPermitido}`,
+        `El retroceso desde ${estadoAnterior} solo se puede realizar a ${estadoDestinoPermitido}`,
       );
     }
 

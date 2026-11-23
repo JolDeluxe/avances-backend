@@ -110,15 +110,20 @@ export class ValesQueryService {
     }
 
     let estadoCondition: Prisma.ValeMaterialWhereInput | null = null;
-    if (filters.estado && filters.estado.length > 0) {
-      const estadosFiltrados = filters.estado.filter((e): e is EstadoVale =>
-        ESTADOS_VALE_VALIDOS.has(e as EstadoVale),
-      );
-      if (estadosFiltrados.length === 1) {
-        estadoCondition = { estado: estadosFiltrados[0] };
-      } else if (estadosFiltrados.length > 1) {
-        estadoCondition = { estado: { in: estadosFiltrados } };
+    if (filters.estado) {
+      const estadosArray = Array.isArray(filters.estado) ? filters.estado : [filters.estado];
+      if (estadosArray.length > 0) {
+        const estadosFiltrados = estadosArray.filter((e): e is EstadoVale =>
+          ESTADOS_VALE_VALIDOS.has(e as EstadoVale),
+        );
+        if (estadosFiltrados.length === 1) {
+          estadoCondition = { estado: estadosFiltrados[0] };
+        } else if (estadosFiltrados.length > 1) {
+          estadoCondition = { estado: { in: estadosFiltrados } };
+        }
       }
+    } else if (filters.excludeEstado) {
+      estadoCondition = { estado: { not: filters.excludeEstado } };
     }
 
     // where completo para items y total

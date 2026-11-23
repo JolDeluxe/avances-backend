@@ -230,9 +230,9 @@ export class ValesService {
       departamentoValeNombre: valeActual.departamentoVale.nombre,
     });
 
-    if (valeActual.estado !== "PENDIENTE") {
+    if (valeActual.estado === "CANCELADO" || valeActual.estado === "DESCONTADO") {
       throw new ConflictError(
-        `Solo se pueden editar vales en estado PENDIENTE (estado actual: ${valeActual.estado})`,
+        `No se pueden modificar los datos de un vale ${valeActual.estado === "CANCELADO" ? "cancelado" : "que ya fue descontado en el sistema"}. Para corregirlo, debe retroceder primero el descuento a PENDIENTE.`,
       );
     }
 
@@ -369,11 +369,11 @@ export class ValesService {
         };
       }
 
-      // 6. Actualización con control de concurrencia sobre estado === PENDIENTE
+      // 6. Actualización con control de concurrencia sobre estados editables (no CANCELADO ni DESCONTADO)
       const updated = await tx.valeMaterial.updateMany({
         where: {
           id,
-          estado: "PENDIENTE",
+          estado: { notIn: ["CANCELADO", "DESCONTADO"] },
         },
         data: {
           serieId: serieEfectiva.id,
@@ -387,7 +387,7 @@ export class ValesService {
 
       if (updated.count === 0) {
         throw new ConflictError(
-          "El estado del vale cambió recientemente y ya no se encuentra en PENDIENTE",
+          "El estado del vale cambió recientemente y ya no se encuentra disponible para edición",
         );
       }
 
@@ -396,8 +396,8 @@ export class ValesService {
           data: {
             valeId: id,
             accion: "EDICION",
-            estadoAnterior: "PENDIENTE",
-            estadoNuevo: "PENDIENTE",
+            estadoAnterior: valeActual.estado,
+            estadoNuevo: valeActual.estado,
             usuarioId: actorId,
             cambios: cambios as Prisma.InputJsonValue,
           },
