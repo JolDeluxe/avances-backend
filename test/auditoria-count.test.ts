@@ -112,4 +112,41 @@ describe("Auditoria Counts Backend Tests", () => {
       data: { tipoSurtidoAlmacen: null },
     });
   });
+
+  it("ADMIN con permisos operativos cuenta todos los frentes y vales de su departamento sin requerir segmentación física", async () => {
+    const rolAdmin = await prisma.rol.findUniqueOrThrow({ where: { codigo: "ADMIN" } });
+    const adminUser = await prisma.usuario.create({
+      data: {
+        usuario: `test_adm_cnt_${Date.now()}`,
+        nombre: "Test Admin Conteo",
+        passwordHash: "hash",
+        rolId: rolAdmin.id,
+        departamentoId: deptoId,
+        tipoMaterialAuditor: null,
+        tipoSurtidoAlmacen: null,
+        estado: "ACTIVO",
+      },
+    });
+
+    try {
+      const countListados = await listadosQueryService.getAuditoriaCount(adminUser.id, [
+        PERMISOS.LISTADO_DESCONTAR,
+      ]);
+      const countVales = await valesQueryService.getAuditoriaCount(adminUser.id, [
+        PERMISOS.VALE_DESCONTAR,
+      ]);
+
+      expect(typeof countListados).toBe("number");
+      expect(countListados).toBeGreaterThanOrEqual(0);
+      expect(typeof countVales).toBe("number");
+      expect(countVales).toBeGreaterThanOrEqual(0);
+
+      // Verificar que ADMIN no puede consultar scopeView='almacen' en Vales
+      await expect(
+        valesQueryService.getVales({ scopeView: "almacen", pagina: 1, limite: 10 }, adminUser.id),
+      ).rejects.toThrow("No tiene autorización para consultar el tablero operativo de almacén");
+    } finally {
+      await prisma.usuario.delete({ where: { id: adminUser.id } });
+    }
+  });
 });

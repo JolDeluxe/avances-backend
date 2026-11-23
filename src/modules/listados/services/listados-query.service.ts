@@ -242,29 +242,15 @@ export class ListadosQueryService {
     }
 
     const scope = await scopeService.resolveUserScope(usuarioId);
+    const authorizedFrentes = scopeService.getAuthorizedAuditFrentes(scope);
 
-    // Deny-by-default para usuarios no globales sin asignación explícita de auditoría
-    const rawAuditor = scope.tipoMaterialAuditor?.trim();
-    if (!scope.esGlobal && !rawAuditor) {
+    // Deny-by-default para usuarios sin alcance autorizado de auditoría
+    if (!authorizedFrentes) {
       return 0;
     }
 
-    let frentesPermitidos: TipoFrenteMaterial[] | null = null;
-    if (!scope.esGlobal && rawAuditor) {
-      const permitidos = rawAuditor
-        .split(",")
-        .map((s) => s.trim().toUpperCase())
-        .filter(Boolean);
-
-      if (!permitidos.includes("TODOS")) {
-        frentesPermitidos = permitidos.filter(
-          (s): s is TipoFrenteMaterial => s === "DIRECTOS" || s === "INDIRECTOS" || s === "BOLSAS",
-        );
-        if (frentesPermitidos.length === 0) {
-          return 0;
-        }
-      }
-    }
+    const frentesPermitidos: TipoFrenteMaterial[] | null =
+      authorizedFrentes === "TODOS" ? null : authorizedFrentes;
 
     const scopeWhere = scopeService.buildScopeWhere(scope);
 

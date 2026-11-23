@@ -99,6 +99,17 @@ export class ValesScopeService {
       scopeView?: ValeScopeView;
     } = {},
   ): Prisma.ValeMaterialWhereInput {
+    if (
+      options.scopeView === "almacen" &&
+      !scope.esGlobal &&
+      scope.rolCodigo !== "ALMACENISTA" &&
+      scope.rolCodigo !== "VISUALIZADOR"
+    ) {
+      throw new ForbiddenError(
+        "No tiene autorización para consultar el tablero operativo de almacén",
+      );
+    }
+
     const where: Prisma.ValeMaterialWhereInput = {};
 
     if (scope.esGlobal) {

@@ -1,4 +1,4 @@
-import type { AreaVale } from "@prisma/client";
+import type { AreaVale, EstadoFrenteMaterial, TipoFrenteMaterial } from "@prisma/client";
 import { prisma } from "../../../config/database";
 import { ForbiddenError } from "../../../utils/errors";
 
@@ -152,6 +152,161 @@ export class ScopeService {
 
     if (scope.lineaProduccionIds.length > 0 && !scope.lineaProduccionIds.includes(destino.lineaProduccionId)) {
       throw new ForbiddenError("No tiene autorización para operar en la línea de producción solicitada");
+    }
+  }
+
+  /**
+   * Determina si el alcance corresponde a un rol de supervisión operativa departamental (ADMIN),
+   * el cual opera por defecto todos los tipos de frente (DIRECTOS, INDIRECTOS, BOLSAS)
+   * exclusivamente dentro de su departamento asignado, sin requerir segmentación física de piso.
+   * Los roles segmentados (AUDITOR, ALMACENISTA) jamás califican aquí y mantienen deny-by-default.
+   */
+  hasDepartmentalOperationalScope(scope: UserScope): boolean {
+    return !scope.esGlobal && scope.rolCodigo === "ADMIN";
+  }
+
+  /**
+   * Resuelve los frentes de auditoría autorizados para el usuario:
+   * - "TODOS": SUPER_ADMIN, ADMIN departamental (sin restricción específica) o AUDITOR con "TODOS".
+   * - TipoFrenteMaterial[]: Frentes específicos asignados en tipoMaterialAuditor.
+   * - null: Sin alcance de auditoría (Deny-by-default para AUDITOR con campo null/vacío u otros roles).
+   */
+  getAuthorizedAuditFrentes(scope: UserScope): TipoFrenteMaterial[] | "TODOS" | null {
+    if (scope.esGlobal) {
+      return "TODOS";
+    }
+
+    const rawAuditor = scope.tipoMaterialAuditor?.trim();
+    if (rawAuditor) {
+      const permitidos = rawAuditor
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+
+      if (permitidos.includes("TODOS")) {
+        return "TODOS";
+      }
+
+      const validos = permitidos.filter(
+        (s): s is TipoFrenteMaterial => s === "DIRECTOS" || s === "INDIRECTOS" || s === "BOLSAS",
+      );
+      return validos.length > 0 ? validos : null;
+    }
+
+    if (this.hasDepartmentalOperationalScope(scope)) {
+      return "TODOS";
+    }
+
+    return null;
+  }
+
+  /**
+   * Valida estrictamente el alcance operativo sobre un frente específico de un listado:
+   * 1. SUPER_ADMIN (esGlobal): acceso global.
+   * 2. Roles segmentados (ALMACENISTA / AUDITOR): requieren asignación explícita no vacía en
+   *    tipoSurtidoAlmacen o tipoMaterialAuditor según la operación. Un valor null o vacío se deniega (Deny-by-default).
+   * 3. ADMIN (hasDepartmentalOperationalScope): alcance departamental sobre DIRECTOS, INDIRECTOS y BOLSAS
+   *    dentro de su propio departamento (el aislamiento departamental se valida previamente con scopeWhere).
+   */
+  assertCanOperateFrente(
+    scope: UserScope,
+    tipoFrente: TipoFrenteMaterial,
+    operacion: "ALMACEN" | "AUDITORIA" | "RETROCESO",
+    estadoOrigen?: EstadoFrenteMaterial,
+  ): void {
+    if (scope.esGlobal) {
+      return;
+    }
+
+    const esAdminDepartamental = this.hasDepartmentalOperationalScope(scope);
+
+    if (operacion === "ALMACEN") {
+      const rawAlmacen = scope.tipoSurtidoAlmacen?.trim();
+      if (rawAlmacen) {
+        const permitidos = rawAlmacen
+          .split(",")
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean);
+        if (!permitidos.includes("TODOS") && !permitidos.includes(tipoFrente)) {
+          throw new ForbiddenError(
+            `Su alcance de almacén no le autoriza operar el frente ${tipoFrente}. Frentes autorizados: ${permitidos.join(", ")}`,
+          );
+        }
+        return;
+      }
+
+      if (esAdminDepartamental) {
+        return;
+      }
+
+      throw new ForbiddenError(
+        `No cuenta con alcance operativo de surtido de almacén para operar el frente ${tipoFrente}`,
+      );
+    }
+
+    if (operacion === "AUDITORIA") {
+      const rawAuditor = scope.tipoMaterialAuditor?.trim();
+      if (rawAuditor) {
+        const permitidosAud = rawAuditor
+          .split(",")
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean);
+        if (!permitidosAud.includes("TODOS") && !permitidosAud.includes(tipoFrente)) {
+          throw new ForbiddenError(
+            `Su alcance de auditoría no le autoriza descontar el frente ${tipoFrente}. Frentes autorizados: ${permitidosAud.join(", ")}`,
+          );
+        }
+        return;
+      }
+
+      if (esAdminDepartamental) {
+        return;
+      }
+
+      throw new ForbiddenError(
+        `No cuenta con alcance operativo de auditoría para descontar el frente ${tipoFrente}`,
+      );
+    }
+
+    if (operacion === "RETROCESO") {
+      const frentesAlm = scope.tipoSurtidoAlmacen
+        ? scope.tipoSurtidoAlmacen.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+        : [];
+      const frentesAud = scope.tipoMaterialAuditor
+        ? scope.tipoMaterialAuditor.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+        : [];
+
+      if (frentesAlm.length === 0 && frentesAud.length === 0) {
+        if (esAdminDepartamental) {
+          return;
+        }
+        throw new ForbiddenError(
+          `No cuenta con alcance operativo asignado para retroceder el frente ${tipoFrente}`,
+        );
+      }
+
+      if (estadoOrigen === "SEPARADO") {
+        const autorizadoAlm =
+          esAdminDepartamental || frentesAlm.includes("TODOS") || frentesAlm.includes(tipoFrente);
+        if (!autorizadoAlm) {
+          throw new ForbiddenError(
+            `Su alcance de auditoría no le autoriza retroceder un material en preparación de almacén (SEPARADO). Se requiere alcance de surtido de almacén para el frente ${tipoFrente}`,
+          );
+        }
+        return;
+      }
+
+      const autorizadoAlm =
+        esAdminDepartamental || frentesAlm.includes("TODOS") || frentesAlm.includes(tipoFrente);
+      const autorizadoAud =
+        esAdminDepartamental || frentesAud.includes("TODOS") || frentesAud.includes(tipoFrente);
+
+      if (!autorizadoAlm && !autorizadoAud) {
+        throw new ForbiddenError(
+          `Su alcance operativo no le autoriza retroceder el frente ${tipoFrente}`,
+        );
+      }
+      return;
     }
   }
 }

@@ -252,7 +252,7 @@ describe("Validación Estricta Deny-by-Default en Listados (Backend)", () => {
       ],
     });
 
-    // 9. Admin con excepción operativa de separar, pero sin alcance asignado
+    // 9. Admin con permisos operativos base (alcance departamental)
     const uAdminOp = await createTestUser("t_admin_op", rolAdminId, null, null);
     tokenAdminSinAlcance = securityService.generateAccessToken({
       usuarioId: uAdminOp.id,
@@ -264,6 +264,7 @@ describe("Validación Estricta Deny-by-Default en Listados (Backend)", () => {
         PERMISOS.LISTADO_SEPARAR,
         PERMISOS.LISTADO_ENTREGAR,
         PERMISOS.LISTADO_DESCONTAR,
+        PERMISOS.LISTADO_RETROCEDER,
       ],
     });
 
@@ -612,7 +613,7 @@ describe("Validación Estricta Deny-by-Default en Listados (Backend)", () => {
     });
   });
 
-  describe("Bypass Global SUPER_ADMIN y Ausencia de Bypass para ADMIN", () => {
+  describe("Bypass Global SUPER_ADMIN y Alcance Departamental ADMIN", () => {
     it("22. SUPER_ADMIN conserva bypass global sin requerir asignación de frentes", async () => {
       // Super Admin opera INDIRECTOS (separar) teniendo tipoSurtidoAlmacen = null
       const res = await requestApi("POST", `/${listadoTestId}/separar`, tokenSuperAdmin, {
@@ -622,13 +623,54 @@ describe("Validación Estricta Deny-by-Default en Listados (Backend)", () => {
       expect(res.json.data.frentes.find((f: any) => f.tipoFrente === "INDIRECTOS").estado).toBe("SEPARADO");
     });
 
-    it("23. ADMIN con permisos operativos pero sin alcance: es denegado con 403 Forbidden (sin privilegios por rol)", async () => {
-      // Admin tiene listado:entregar por token, pero al tener asignación null es rechazado
-      const res = await requestApi("POST", `/${listadoTestId}/entregar`, tokenAdminSinAlcance, {
+    it("23. ADMIN tiene alcance operativo departamental (entregar y descontar en su departamento sin requerir segmentación física)", async () => {
+      // Admin entrega INDIRECTOS (actualmente en SEPARADO) y luego lo descuenta dentro de su departamento
+      const resEntregar = await requestApi("POST", `/${listadoTestId}/entregar`, tokenAdminSinAlcance, {
         tipoFrente: "INDIRECTOS",
       });
-      expect(res.status).toBe(403);
-      expect(res.json.message).toContain("No cuenta con alcance operativo de surtido de almacén");
+      expect(resEntregar.status).toBe(200);
+      expect(resEntregar.json.data.frentes.find((f: any) => f.tipoFrente === "INDIRECTOS").estado).toBe("ENTREGADO");
+
+      const resDescontar = await requestApi("POST", `/${listadoTestId}/descontar`, tokenAdminSinAlcance, {
+        tipoFrente: "INDIRECTOS",
+      });
+      expect(resDescontar.status).toBe(200);
+      expect(resDescontar.json.data.frentes.find((f: any) => f.tipoFrente === "INDIRECTOS").estado).toBe("DESCONTADO");
+    });
+
+    it("23b. ADMIN de otro departamento es aislado estrictamente y no puede operar listados ajenos", async () => {
+      const otroDepto = await prisma.departamento.findFirstOrThrow({
+        where: { id: { not: deptoId }, estado: "ACTIVO" },
+      });
+      const uAdminOtroDepto = await prisma.usuario.create({
+        data: {
+          usuario: `t_admin_otro_${Date.now()}`,
+          nombre: "Admin Otro Depto",
+          passwordHash: defaultHash,
+          departamentoId: otroDepto.id,
+          rolId: rolAdminId,
+          estado: "ACTIVO",
+        },
+      });
+      createdUserIds.push(uAdminOtroDepto.id);
+
+      const tokenAdminOtro = securityService.generateAccessToken({
+        usuarioId: uAdminOtroDepto.id,
+        usuario: uAdminOtroDepto.usuario,
+        rolId: uAdminOtroDepto.rolId,
+        departamentoId: uAdminOtroDepto.departamentoId,
+        permisos: [
+          PERMISOS.LISTADO_VER,
+          PERMISOS.LISTADO_SEPARAR,
+          PERMISOS.LISTADO_ENTREGAR,
+          PERMISOS.LISTADO_DESCONTAR,
+        ],
+      });
+
+      const res = await requestApi("POST", `/${listadoRetrocesoId}/separar`, tokenAdminOtro, {
+        tipoFrente: "INDIRECTOS",
+      });
+      expect(res.status).toBe(404);
     });
   });
 
@@ -640,11 +682,11 @@ describe("Validación Estricta Deny-by-Default en Listados (Backend)", () => {
       expect(Array.isArray(res.json.data.items)).toBe(true);
     });
 
-    it("25. Operaciones masivas (batch-operar): rechaza en Best-Effort con detalle en fallidos cuando no hay alcance", async () => {
-      // Usuario con permiso de entregar pero sin alcance en almacén ejecuta batchOperar
-      const res = await requestApi("POST", "/batch-operar", tokenAdminSinAlcance, {
-        ids: [listadoTestId],
-        accion: "entregar",
+    it("25. Operaciones masivas (batch-operar): rechaza en Best-Effort con detalle en fallidos cuando un rol segmentado no tiene alcance", async () => {
+      // Almacenista con permiso de entregar pero con tipoSurtidoAlmacen = null ejecuta batchOperar
+      const res = await requestApi("POST", "/batch-operar", tokenAlmNullScope, {
+        ids: [listadoRetrocesoId],
+        accion: "separar",
         tipoFrente: "INDIRECTOS",
       });
 
