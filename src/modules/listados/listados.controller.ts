@@ -127,6 +127,17 @@ export class ListadosController {
     }
   }
 
+  async getAuditoriaCount(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const usuarioId = req.user!.usuarioId;
+      const permisos = req.user!.permisos ?? [];
+      const count = await listadosQueryService.getAuditoriaCount(usuarioId, permisos);
+      sendSuccess(res, { count });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createListado(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const data = req.body as CreateListadoInput;

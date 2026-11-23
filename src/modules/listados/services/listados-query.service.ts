@@ -1,7 +1,8 @@
 import { prisma } from "../../../config/database";
-import { Prisma } from "@prisma/client";
+import { Prisma, type TipoFrenteMaterial } from "@prisma/client";
 import { scopeService } from "../../auth/services/scope.service";
 import { NotFoundError, ForbiddenError } from "../../../utils/errors";
+import { PERMISOS } from "../../../config/permissions";
 import type { ListListadosQuery } from "../listados.schema";
 
 export class ListadosQueryService {
@@ -229,6 +230,58 @@ export class ListadosQueryService {
     }
 
     return anios;
+  }
+
+  /**
+   * Conteo exacto de listados con al menos un frente en ENTREGADO elegible para auditoría
+   * según las asignaciones y permisos del usuario autenticado.
+   */
+  async getAuditoriaCount(usuarioId: number, permisosUsuario: string[]): Promise<number> {
+    if (!permisosUsuario || !permisosUsuario.includes(PERMISOS.LISTADO_DESCONTAR)) {
+      return 0;
+    }
+
+    const scope = await scopeService.resolveUserScope(usuarioId);
+
+    // Deny-by-default para usuarios no globales sin asignación explícita de auditoría
+    const rawAuditor = scope.tipoMaterialAuditor?.trim();
+    if (!scope.esGlobal && !rawAuditor) {
+      return 0;
+    }
+
+    let frentesPermitidos: TipoFrenteMaterial[] | null = null;
+    if (!scope.esGlobal && rawAuditor) {
+      const permitidos = rawAuditor
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+
+      if (!permitidos.includes("TODOS")) {
+        frentesPermitidos = permitidos.filter(
+          (s): s is TipoFrenteMaterial => s === "DIRECTOS" || s === "INDIRECTOS" || s === "BOLSAS",
+        );
+        if (frentesPermitidos.length === 0) {
+          return 0;
+        }
+      }
+    }
+
+    const scopeWhere = scopeService.buildScopeWhere(scope);
+
+    return prisma.listadoMaterial.count({
+      where: {
+        ...scopeWhere,
+        departamento: { estado: "ACTIVO" },
+        lineaProduccion: { estado: "ACTIVO" },
+        estado: { not: "CANCELADO" },
+        frentes: {
+          some: {
+            estado: "ENTREGADO",
+            ...(frentesPermitidos ? { tipoFrente: { in: frentesPermitidos } } : {}),
+          },
+        },
+      },
+    });
   }
 }
 

@@ -1,6 +1,7 @@
 import type { EstadoVale, Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database";
 import { NotFoundError } from "../../../utils/errors";
+import { PERMISOS } from "../../../config/permissions";
 import type { FilterValesQuery } from "../vales.schema";
 import { valesScopeService } from "./vales-scope.service";
 
@@ -229,6 +230,36 @@ export class ValesQueryService {
     }
 
     return vale;
+  }
+
+  /**
+   * Conteo exacto de vales en ENTREGADO elegibles para auditoría
+   * según las asignaciones y permisos del usuario autenticado.
+   */
+  async getAuditoriaCount(usuarioId: number, permisosUsuario: string[]): Promise<number> {
+    if (!permisosUsuario || !permisosUsuario.includes(PERMISOS.VALE_DESCONTAR)) {
+      return 0;
+    }
+
+    const scope = await valesScopeService.resolveScope(usuarioId);
+
+    // Deny-by-default para alcance acumulativo vacío
+    if (
+      valesScopeService.requiresCumulativeValeScope(scope) &&
+      scope.areasVale.length === 0 &&
+      scope.departamentosValeIds.length === 0
+    ) {
+      return 0;
+    }
+
+    const scopeWhere = valesScopeService.buildQueryWhere(scope);
+
+    return prisma.valeMaterial.count({
+      where: {
+        ...scopeWhere,
+        estado: "ENTREGADO",
+      },
+    });
   }
 }
 

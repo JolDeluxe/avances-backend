@@ -41,6 +41,11 @@ router.get(
 );
 
 router.get(
+  "/auditoria/count",
+  (req, res, next) => listadosController.getAuditoriaCount(req, res, next),
+);
+
+router.get(
   "/:id",
   requirePermission(PERMISOS.LISTADO_VER),
   validate({ params: listadoIdParamSchema }),

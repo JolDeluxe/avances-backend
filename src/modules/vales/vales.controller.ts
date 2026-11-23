@@ -162,6 +162,17 @@ export class ValesController {
     }
   }
 
+  async getAuditoriaCount(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const usuarioId = req.user!.usuarioId;
+      const permisos = req.user!.permisos ?? [];
+      const count = await valesQueryService.getAuditoriaCount(usuarioId, permisos);
+      sendSuccess(res, { count });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getVales(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const filtros = req.query as unknown as FilterValesQuery;

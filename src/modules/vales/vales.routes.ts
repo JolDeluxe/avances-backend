@@ -55,6 +55,12 @@ router.post(
   (req, res, next) => valesController.batchOperarVales(req, res, next),
 );
 
+// Conteo de vales pendientes de auditoría (descuento)
+router.get(
+  "/auditoria/count",
+  (req, res, next) => valesController.getAuditoriaCount(req, res, next),
+);
+
 // 5. Detalle de un vale con su historial completo
 router.get(
   "/:id",

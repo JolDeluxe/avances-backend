@@ -21,6 +21,10 @@ export class ListadosService {
     return listadosQueryService.getAniosDisponibles(usuarioId);
   }
 
+  async getAuditoriaCount(usuarioId: number, permisos: string[]) {
+    return listadosQueryService.getAuditoriaCount(usuarioId, permisos);
+  }
+
   // Delegaciones de ciclo de vida hacia listadosLifecycleService
   async separarListado(id: number, usuarioId: number, tipoFrente: "DIRECTOS" | "INDIRECTOS" | "BOLSAS", motivo?: string) {
     return listadosLifecycleService.separar(id, usuarioId, tipoFrente, motivo);
